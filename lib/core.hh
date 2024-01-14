@@ -1,0 +1,191 @@
+#ifndef __X86_ASSEMBLER_LIB_CORE_HH__
+#define __X86_ASSEMBLER_LIB_CORE_HH__
+
+#include <vector>
+#include <memory>
+#include <algorithm>
+#include <ranges>
+#include <string>
+#include <utility>
+#include <optional>
+#include <span>
+#include <source_location>
+#include <string_view>
+#include <concepts>
+#include <filesystem>
+#include <unordered_map>
+#include <fmt/format.h>
+#include <fmt/color.h>
+
+//=======================================================================================
+// Miscallaneous type and namespace aliases.
+//=======================================================================================
+using i8 = int8_t;
+using i16 = int16_t;
+using i32 = int32_t;
+using i64 = int64_t;
+using u8 = uint8_t;
+using u16 = uint16_t;
+using u32 = uint32_t;
+using u64 = uint64_t;
+using f32 = float;
+using f64 = double;
+
+using usz = size_t;
+using uptr = uintptr_t;
+using isz = ptrdiff_t;
+using iptr = intptr_t;
+
+template <typename T>
+using Rc = std::shared_ptr<T>;
+
+template <typename T>
+using Box = std::unique_ptr<T>;
+
+template<typename T>
+using Vec = std::vector<T>;
+
+template <typename T>
+using Opt = std::optional<T>;
+
+using ByteVec = Vec<u8>;
+
+namespace fs = std::filesystem;
+namespace vws = std::views;
+namespace rgs = std::ranges;
+
+//=======================================================================================
+// Helper functions and types.
+//=======================================================================================
+template <typename E> 
+requires std::is_enum_v<E>
+constexpr auto operator+(E e) -> std::underlying_type_t<E> {
+    return std::to_underlying(e);
+}
+
+namespace utils {
+
+// StringMap utility type.
+//
+// This is basically an std::unordered_map<std::string, T> but with the 
+// additional property of heterogeneous lookups. Lookups can be made using
+// any type that is convertible to a string_view. One important thing to note
+// here is that the type with which the lookup is made must be comparable to 
+// a string. Something like std::span<const char> will not work!
+// A vanilla std::unordered_map doesn't allow this kind of behaviour by default.
+struct StringHash {
+    using is_transparent = void;
+
+    [[nodiscard]] auto operator()(std::string_view data) const { return std::hash<std::string_view>{}(data); }
+
+    [[nodiscard]] auto operator()(const std::string& data) const { return std::hash<std::string>{}(data); }
+
+    template <typename Ty>
+    requires requires(const Ty& ty) {
+        { ty.size() } -> std::convertible_to<usz>;
+        { ty.data() } -> std::convertible_to<const char*>;
+    }
+    [[nodiscard]] auto operator()(const Ty& ty) const { 
+        return std::hash<std::string_view>{}(std::string_view{ty.data(), ty.size()});
+    }
+};
+
+template <typename T>
+using StringMap = std::unordered_map<std::string, T, StringHash, std::equal_to<>>;
+
+template <typename Callable>
+struct DeferType2 {
+    Callable cb_;
+
+    explicit DeferType2(Callable&& cb) : 
+        cb_(std::forward<Callable>(cb)) {}
+
+    ~DeferType2() { cb_(); }
+};
+
+struct DeferType1 {
+    template <typename Callable>
+    auto operator->*(Callable&& cb) -> DeferType2<Callable> {
+        return DeferType2<Callable>{std::forward<Callable>(cb)};
+    }
+};
+
+// Assertion kinds.
+enum struct AK {
+    Assertion,
+    Todo,
+    Unreachable
+};
+
+[[noreturn]] auto assert_helper(
+    AK k,
+    std::string_view cond,
+    std::string_view file,
+    std::string_view func_name,
+    u32 line,
+    std::string message = ""
+) -> void;
+
+auto fits_in_u8(i64 num) -> bool;
+auto fits_in_u16(i64 num) -> bool;
+auto fits_in_u32(i64 num) -> bool;
+
+auto fits_in_i8(i64 num) -> bool;
+auto fits_in_i16(i64 num) -> bool;
+auto fits_in_i32(i64 num) -> bool;
+
+auto fits_in_b8(i64 num) -> bool;
+auto fits_in_b16(i64 num) -> bool;
+auto fits_in_b32(i64 num) -> bool;
+
+auto load_file(const fs::path& path) -> Vec<char>;
+
+}  // namespace utils
+
+
+//=======================================================================================
+// Helper Macros.
+//=======================================================================================
+#define FISKA_PRAGMA_HELPER(x) _Pragma (#x)
+
+#define GCC_DIAG_IGNORE_PUSH(warning) \
+    _Pragma("GCC diagnostic push") \
+    FISKA_PRAGMA_HELPER(GCC diagnostic ignored #warning) \
+
+#define GCC_DIAG_IGNORE_POP() \
+    _Pragma("GCC diagnostic pop")
+
+#define defer ::utils::DeferType1{}->*[&]
+
+#define assert(cond, ...)  (cond ? void(0) :       \
+    ::utils::assert_helper(                        \
+        ::utils::AK::Assertion,                    \
+        #cond,                                     \
+        __FILE__,                                  \
+        __PRETTY_FUNCTION__,                       \
+        __LINE__                                   \
+        __VA_OPT__(,fmt::format(__VA_ARGS__))      \
+    ))                                             \
+
+#define todo(...)                                  \
+    ::utils::assert_helper(                        \
+        ::utils::AK::Todo,                         \
+        "",                                        \
+        __FILE__,                                  \
+        __PRETTY_FUNCTION__,                       \
+        __LINE__                                   \
+        __VA_OPT__(,fmt::format(__VA_ARGS__))      \
+    )
+
+#define unreachable(...)                           \
+    ::utils::assert_helper(                        \
+        ::utils::AK::Unreachable,                  \
+        "",                                        \
+        __FILE__,                                  \
+        __PRETTY_FUNCTION__,                       \
+        __LINE__                                   \
+        __VA_OPT__(,fmt::format(__VA_ARGS__))      \
+    )
+
+
+#endif

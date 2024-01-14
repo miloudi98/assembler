@@ -1,0 +1,22 @@
+# Clangd cache
+.cache
+
+# CMake build directory
+**/build
+
+# Third party dependencies
+**/third_party/
+
+# Generated object files.
+**/gen_obj
+
+# Benchmarking data
+**/data
+
+# Scratch folder
+**/scratch
+
+# Objfiles generated.
+*.S
+*.o
+
