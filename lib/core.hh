@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include <unordered_set>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -49,6 +50,8 @@ template <typename T>
 using Opt = std::optional<T>;
 
 using ByteVec = Vec<u8>;
+
+using StrRef = std::string_view;
 
 namespace fs = std::filesystem;
 namespace vws = std::views;

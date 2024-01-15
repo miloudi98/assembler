@@ -63,10 +63,10 @@ auto utils::fits_in_i32(i64 num) -> bool { return fits_in_signed<i32>(num); }
     using enum fmt::color;
     using enum fmt::emphasis;
 
-
     // Print the file location and line number.
-    fmt::print(bold | underline | fg(light_gray), "-->{}:{}", file, line);
-    fmt::print(" @ {}: ", func_name);
+    fmt::print(bold | underline | fg(medium_slate_blue), "\u2192 {}:{}", file, line);
+    fmt::print(" in");
+    fmt::print(fg(medium_slate_blue), " {}: ", func_name);
 
     // Print the assertion kind.
     switch (k) {
@@ -89,7 +89,7 @@ auto utils::fits_in_i32(i64 num) -> bool { return fits_in_signed<i32>(num); }
     // Skip a line to show the stack trace.
     fmt::print("\n");
 
-    fmt::print(underline, "Stack trace (most recent call first):\n");
+    fmt::print("Stack trace (most recent call first):\n");
     print_stack_trace();
 
     std::exit(1);
