@@ -20,3 +20,5 @@
 *.S
 *.o
 
+# GCC build directories
+gcc*
