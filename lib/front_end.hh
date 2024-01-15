@@ -53,8 +53,6 @@ enum struct TK {
     Reg,
     // x86 mnemonic. (e.g 'mov', 'addcx')
     Mnemonic,
-    // Line comment (e.g '// Line comment')
-    LComment,
 
     Eof,
 };
@@ -63,6 +61,8 @@ struct Tok {
     TK kind_{};
     StrRef str_{};
     Location loc_{};
+
+    auto spelling() -> StrRef;
 };
 
 struct Expr {
@@ -109,12 +109,6 @@ struct Lexer {
         mod_(mod)
     {}
 
-    template <typename... Cs>
-    requires (std::same_as<Cs, char> and ...)
-    auto at(Cs... chars) -> bool {
-        return ((c_ == chars) or ...);
-    }
-
     auto eof() -> bool { return curr_ >= end_; }
     auto tok() -> Tok&;
     // A lookahead of '0' means that you are peeking the current char which is
@@ -125,6 +119,9 @@ struct Lexer {
     void next_tok();
     void next_tok_helper();
     void lex_comment();
+    void lex_hex_digit();
+    void lex_digit();
+    void lex_ident();
 };
 
 }  // namespace fiska

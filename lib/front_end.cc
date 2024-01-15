@@ -2,6 +2,8 @@
 
 #include "lib/core.hh"
 
+#include <cctype>
+
 namespace {
 
 // Below are the characters considered to be whitespace.
@@ -28,16 +30,47 @@ constexpr auto is_hex_digit(char c) -> bool {
     return is_digit(c) or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F');
 }
 
+constexpr auto is_ident_start(char c) -> bool {
+    return std::isalpha(c) or c == '_';
+}
+
+constexpr auto is_ident_cont(char c) -> bool {
+    return std::isalnum(c) or c == '_';
+}
+
 void skip_white_space(fiska::Lexer& lxr) {
     while (is_white_space(lxr.c_)) {
         lxr.next_c();
     }
 }
 
+const utils::StringMap<TK> keywords = {
+    {"fn", TK::Fn},
+
+    {"b8", TK::BitWidth}, {"b16", TK::BitWidth}, {"b32", TK::BitWidth}, {"b64", TK::BitWidth},
+
+    {"rax", TK::Reg}, {"rcx", TK::Reg}, {"rdx", TK::Reg}, {"rbx", TK::Reg}, {"rsp", TK::Reg}, {"rbp", TK::Reg},
+    {"rsi", TK::Reg}, {"rdi", TK::Reg}, {"rip", TK::Reg}, {"r8", TK::Reg}, {"r9", TK::Reg}, {"r10", TK::Reg},
+    {"r11", TK::Reg}, {"r12", TK::Reg}, {"r13", TK::Reg}, {"r14", TK::Reg}, {"r15", TK::Reg},
+
+    {"es", TK::Reg}, {"cs", TK::Reg}, {"ss", TK::Reg}, {"ds", TK::Reg}, {"fs", TK::Reg}, {"gs", TK::Reg},
+
+    {"cr0", TK::Reg}, {"cr1", TK::Reg}, {"cr2", TK::Reg}, {"cr3", TK::Reg}, {"cr4", TK::Reg},
+    {"cr5", TK::Reg}, {"cr6", TK::Reg}, {"cr7", TK::Reg}, {"cr8", TK::Reg}, {"cr9", TK::Reg},
+    {"cr10", TK::Reg}, {"cr11", TK::Reg}, {"cr12", TK::Reg}, {"cr13", TK::Reg}, {"cr14", TK::Reg}, {"cr15", TK::Reg},
+
+    {"dbg0", TK::Reg}, {"dbg1", TK::Reg}, {"dbg2", TK::Reg}, {"dbg3", TK::Reg}, {"dbg4", TK::Reg},
+    {"dbg5", TK::Reg}, {"dbg6", TK::Reg}, {"dbg7", TK::Reg}, {"dbg8", TK::Reg}, {"dbg9", TK::Reg},
+    {"dbg10", TK::Reg}, {"dbg11", TK::Reg}, {"dbg12", TK::Reg}, {"dbg13", TK::Reg}, {"dbg14", TK::Reg}, {"dbg15", TK::Reg},
+
+    {"mov", TK::Mnemonic}
+};
+
 }  // namespace
 
 auto fiska::Lexer::file_offset() -> u32 {
-    return u32(curr_ - mod_->ctx_->get_file(fid_)->data());
+    auto f = mod_->ctx_->get_file(fid_);
+    return u32(curr_ - f->data());
 }
 
 auto fiska::Lexer::tok() -> Tok& {
@@ -70,6 +103,7 @@ void fiska::Lexer::next_tok_helper() {
     skip_white_space(*this);
 
     tok().loc_.pos_ = file_offset();
+    tok().loc_.fid_ = fid_;
 
     switch (c_) {
     case ',': {
@@ -151,18 +185,7 @@ void fiska::Lexer::next_tok_helper() {
         }
         // Encountered a '0x' prefix.
         if (cc == 'x') {
-            // Remove the '0x' prefix.
-            next_c();
-            next_c();
             lex_hex_digit();
-            break;
-        }
-        if (cc and *cc == 'x') {
-            // Remove the '0x' prefix before lexing the hex digit.
-            NextChar();
-            NextChar();
-
-            LexHexDigit();
             break;
         }
         [[fallthrough]];
@@ -176,7 +199,7 @@ void fiska::Lexer::next_tok_helper() {
     case '7':
     case '8':
     case '9': {
-        LexDigit();
+        lex_digit();
         break;
     }
     case '\0': {
@@ -184,14 +207,81 @@ void fiska::Lexer::next_tok_helper() {
         tok().kind_ = TK::Eof;
         break;
     }
+    default: {
+        if (not is_ident_start(c_)) {
+            todo("Compile error. Expected the start of an identifier");
+        }
+        lex_identifier();
+        break;
+    }
     }  // switch
+    tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
 }
 
 void fiska::Lexer::lex_comment() {
-    while (not at('\n')) {
+    while (c_ != '\n') {
         next_c();
     }
 }
 
 void fiska::Lexer::lex_hex_digit() {
+    const char* hex_num_start = curr_;
+    // remove the '0x' prefix.
+    next_c();
+    next_c();
+    while (is_hex_digit(c_)) {
+        next_c();
+    }
+
+    tok().kind_ = TK::Num;
+    tok().str_ = mod_->tokens_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start)});
 }
+
+void fiska::Lexer::lex_digit() {
+    const char* num_start = curr_;
+    while (is_digit(c_)) {
+        next_c();
+    }
+
+    tok().kind_ = TK::Num;
+    tok().str_ = mod_->tokens_.save(StrRef{num_start, u32(curr_ - num_start)});
+}
+
+void fiska::Lexer::lex_ident() {
+    const char* ident_start = curr_;
+    while (is_ident_cont(c_)) {
+        next_c();
+    }
+
+    tok().str_ = mod_->tokens_.save(StrRef{ident_start, u32(curr_ - num_start)});
+    if (auto k = keywords.find(tok().str_); k != keywords.end()) {
+        tok().kind_ = k->second;
+    } else {
+        tok().kind_ = TK::Ident;
+    }
+}
+
+auto fiska::Lexer::spelling() -> StrRef {
+    switch (kind_) {
+    case TK::LParen: return "<(>";
+    case TK::RParen: return "<)>";
+    case TK::LBrace: return "<{>";
+    case TK::RBrace: return "<}>";
+    case TK::LBracket: return "<[>";
+    case TK::RBracket: return "<]>";
+    case TK::At: return "<@>";
+    case TK::SemiColon: return "<;>";
+    case TK::Colon: return "<:>";
+    case TK::Comma: return "<,>";
+    case TK::Plus: return "<+>";
+    case TK::Minus: return "<->";
+    case TK::Ident: return "<IDENTIFIER>";
+    case TK::Num: return "<NUMBER>";
+    case TK::BitWidth: return "<BIT_WIDTH>";
+    case TK::Fn: return "<FN>";
+    case TK::Reg: return "<REG>";
+    case TK::Mnemonic: return "<MNEMONIC>";
+    case TK::Eof: return "<EOF>";
+    } // switch
+}
+
