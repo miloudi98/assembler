@@ -103,6 +103,8 @@ void fiska::Lexer::next_tok_helper() {
     skip_white_space(*this);
 
     tok().loc_.pos_ = file_offset();
+    // FIXME: having each token carry the fid from which it was lexed is a bit of a waste.
+    // Maybe have each |TokenStream| have its own fid.
     tok().loc_.fid_ = fid_;
 
     switch (c_) {
@@ -211,7 +213,7 @@ void fiska::Lexer::next_tok_helper() {
         if (not is_ident_start(c_)) {
             todo("Compile error. Expected the start of an identifier");
         }
-        lex_identifier();
+        lex_ident();
         break;
     }
     }  // switch
@@ -219,9 +221,7 @@ void fiska::Lexer::next_tok_helper() {
 }
 
 void fiska::Lexer::lex_comment() {
-    while (c_ != '\n') {
-        next_c();
-    }
+    while (c_ != '\n') { next_c(); }
 }
 
 void fiska::Lexer::lex_hex_digit() {
@@ -229,9 +229,7 @@ void fiska::Lexer::lex_hex_digit() {
     // remove the '0x' prefix.
     next_c();
     next_c();
-    while (is_hex_digit(c_)) {
-        next_c();
-    }
+    while (is_hex_digit(c_)) { next_c(); }
 
     tok().kind_ = TK::Num;
     tok().str_ = mod_->tokens_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start)});
@@ -239,9 +237,7 @@ void fiska::Lexer::lex_hex_digit() {
 
 void fiska::Lexer::lex_digit() {
     const char* num_start = curr_;
-    while (is_digit(c_)) {
-        next_c();
-    }
+    while (is_digit(c_)) { next_c(); }
 
     tok().kind_ = TK::Num;
     tok().str_ = mod_->tokens_.save(StrRef{num_start, u32(curr_ - num_start)});
@@ -249,9 +245,7 @@ void fiska::Lexer::lex_digit() {
 
 void fiska::Lexer::lex_ident() {
     const char* ident_start = curr_;
-    while (is_ident_cont(c_)) {
-        next_c();
-    }
+    while (is_ident_cont(c_)) { next_c(); }
 
     tok().str_ = mod_->tokens_.save(StrRef{ident_start, u32(curr_ - num_start)});
     if (auto k = keywords.find(tok().str_); k != keywords.end()) {
