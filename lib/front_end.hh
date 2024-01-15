@@ -16,17 +16,17 @@ enum struct BW : u16 {
 enum struct TK {
     // One character tokens.
     // '('
-    Lparen,
+    LParen,
     // ')'
-    Rparen,
+    RParen,
     // '{'
-    Lbrace,
+    LBrace,
     // '}'
-    Rbrace,
+    RBrace,
     // '['
-    Lbracket,
+    LBracket,
     // ']'
-    Rbracket,
+    RBracket,
     // '@'
     At,
     // ';'
@@ -50,9 +50,11 @@ enum struct TK {
     // keyword 'fn'
     Fn,
     // x86 Registers.
-    Register,
+    Reg,
     // x86 mnemonic. (e.g 'mov', 'addcx')
     Mnemonic,
+    // Line comment (e.g '// Line comment')
+    LComment,
 
     Eof,
 };
@@ -60,7 +62,7 @@ enum struct TK {
 struct Tok {
     TK kind_{};
     StrRef str_{};
-    Location loc{};
+    Location loc_{};
 };
 
 struct Expr {
@@ -84,6 +86,7 @@ struct Module {
     TokStream tokens_;
     Vec<Expr*> ast_;
     Vec<ProcExpr*> procs_;
+    Context* ctx_;
 
     Module(const Module&) = delete;
     Module(Module&&) = delete;
@@ -97,15 +100,31 @@ struct Lexer {
     const char* end_{};
     char c_{};
     u16 fid_{};
-    TokStream& tokens_;
-    Context* ctx_;
+    Module* mod_{};
 
-    explicit Lexer(const File& file, TokStream& tokens)
-        : curr_(file.code_.data()),
-        end_(file.code_.data() + file.code_.size()),
+    explicit Lexer(const File& file, Module* mod)
+        : curr_(file.data()),
+        end_(file.data() + file.size()),
         fid_(file.fid_), 
-        tokens_(tokens)
+        mod_(mod)
     {}
+
+    template <typename... Cs>
+    requires (std::same_as<Cs, char> and ...)
+    auto at(Cs... chars) -> bool {
+        return ((c_ == chars) or ...);
+    }
+
+    auto eof() -> bool { return curr_ >= end_; }
+    auto tok() -> Tok&;
+    // A lookahead of '0' means that you are peeking the current char which is
+    // the same thing as |c_|. |peek_c(1)| would yield the char right after |c_|.
+    auto peek_c(u32 lookahead) -> char;
+    auto file_offset() -> u32;
+    void next_c();
+    void next_tok();
+    void next_tok_helper();
+    void lex_comment();
 };
 
 }  // namespace fiska
