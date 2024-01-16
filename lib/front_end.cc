@@ -172,7 +172,7 @@ void fiska::Lexer::next_tok_helper() {
         // Eat the first '/'
         next_c();
         if (c_ != '/') {
-            error("Expected a line comment after '/', but found '{}'.", c_);
+            error(EK::UnexpectedChar, "Expected a line comment after '/', but found '{}'.", c_);
         }
         // Eat the second '/'
         next_c();
@@ -182,8 +182,8 @@ void fiska::Lexer::next_tok_helper() {
     case '0': {
         char cc = peek_c();
         if (is_digit(cc)) {
-            error("Leading zeros are not supported in a decimal number. "
-                    "Hex digits must be preceded with a '0x' prefix.");
+            error(EK::UnexpectedChar, "Leading zeros are not allowed in a decimal number. "
+                    "Hex numbers must be preceded with a '0x' prefix.");
         }
         // Encountered a '0x' prefix.
         if (cc == 'x') {
@@ -210,11 +210,11 @@ void fiska::Lexer::next_tok_helper() {
         break;
     }
     default: {
-        if (not is_ident_start(c_)) {
-            error("Expected the start of an identifier but found '{}'", c_);
+        if (ident_start(c_)) {
+            lex_ident();
+            break;
         }
-        lex_ident();
-        break;
+        error(EK::UnrecognizedChar, "Expected thet start of an identifier but found '{}' instead.", c_);
     }
     }  // switch
     tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);

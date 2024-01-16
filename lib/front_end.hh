@@ -60,6 +60,14 @@ enum struct TK {
     Eof,
 };
 
+// Error kind.
+// This enum will decide what short message will be shown to the user when 
+// encountering an error during compilation.
+enum struct EK {
+    UnrecognizedChar,
+    UnexpectedChar,
+};
+
 struct Tok {
     TK kind_{};
     StrRef str_{};
@@ -136,7 +144,7 @@ struct Lexer {
     }
 
     template <typename... Args>
-    [[noreturn]] auto error(fmt::format_string<Args...> fmt, Args&&... args) -> void {
+    [[noreturn]] auto error(EK ek, fmt::format_string<Args...> fmt, Args&&... args) -> void {
         using enum fmt::color;
         using enum fmt::emphasis;
 
@@ -153,6 +161,8 @@ struct Lexer {
                 fmt::print(ts, "{}", c.value_or(*ptr));
             }
         };
+        auto print_spaces = [](u32 num) { while(num--) { fmt::print(' '); } };
+
 
         // Print the file name, line number and column number of where the error happened.
         fmt::print(bold | underline | fg(medium_slate_blue),
@@ -160,27 +170,37 @@ struct Lexer {
 
         // Print the error kind and the error message to the user.
         fmt::print(bold | fg(red), " Compile error: ");
-        fmt::print(fmt, std::forward<Args>(args)...);
+        // Print a short message summarizing the error.
+        switch (ek) {
+        case EK::UnexpectedChar: {
+            fmt::print(fg(bold), "Unexpected character encountered: '{}'", c_);
+        }
+        case EK::UnrecognizedChar: {
+            fmt::print(fg(bold), "Unrecognized character: '{}'", c_);
+        }
+        } // switch
         fmt::print("\n");
 
         // Print the line number and the vertical dash.
-        u32 side_bar_size = utils::number_width(info.line_) + std::strlen(" | ");
         fmt::print("{} | ", info.line_);
 
+        // Print the line where the error occured and highlight the last char we 
+        // lexed when the error occured.
         const char* pos_of_highlighted_char = file->data() + tok().loc_.pos_;
+
         print_ptr_range(info.line_start_, pos_of_char_to_highlight, ' '); 
         fmt::print(fg(red) | bold, "{}", *pos_of_char_to_highlight);
         print_ptr_range(pos_of_char_to_highlight + 1, info.line_end_, ' ');
         fmt::print("\n");
 
-        // Print a '^' below the highlighted char. The highlighted char is defined
-        // as the last char we lexed when the error happened.
+        // Print a '^' and a detailed error message below the highlighted char. 
+        // The highlighted char is defined as the last char we lexed when the error happened.
         //
         // Skip the line number and the vertical dash.
-        for (u32 i = 0; i < side_bar_size; ++i) { fmt::print(" "); }
+        print_spaces(/*side_bar_size=*/utils::number_width(info.line_) + std::strlen(" | "));
 
         print_ptr_range(info.line_start_, pos_of_highlighted_char, ' ');
-        fmt::print(fg(red) | bold, "^");
+        fmt::print(fg(red) | bold, "^ {}", fmt::format(fmt, std::forward<Args>(args)...));
         print_ptr_range(pos_of_highlighted_char + 1, info.line_end_, ' ');
         fmt::print("\n");
 
