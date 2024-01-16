@@ -84,9 +84,12 @@ struct ProcExpr : public Expr {
 
 struct TokStream {
     using Storage = Vec<Tok>;
+    using Iterator = Vec<Tok>::iterator;
     Storage storage_;
 
     auto allocate() -> Tok* { return &storage_.emplace_back(); }
+    auto begin() -> Iterator { return storage_->begin(); }
+    auto end() -> Iterator { return storage_.end(); }
 };
 
 struct Module {
@@ -134,13 +137,6 @@ struct Lexer {
     {
         next_c();
         next_tok();
-    }
-
-    static void lex_file_into_module(File* file, Module* mod) {
-        Lexer lxr{file, mod};
-        while (lxr.tok().kind_ != TK::Eof) {
-            lxr.next_tok();
-        }
     }
 
     template <typename... Args>
@@ -218,6 +214,15 @@ struct Lexer {
     void lex_hex_digit();
     void lex_digit();
     void lex_ident();
+    static void lex_file_into_module(File* file, Module* mod);
+};
+
+struct Parser {
+    Module* mod_{};
+    TokStream::Iterator curr_tok_it_{};
+
+    explicit Parser(Module* mod) 
+        : mod_(mod), curr_tok_it_(mod->tokens_.begin()) {}
 };
 
 }  // namespace fiska

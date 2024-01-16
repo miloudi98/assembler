@@ -281,3 +281,8 @@ auto fiska::Tok::spelling() -> StrRef {
     unreachable();
 }
 
+void fiska::Lexer::lex_file_into_module(File* file, Module* mod) {
+    Lexer lxr{file, mod};
+    while (lxr.tok().kind_ != TK::Eof) { lxr.next_tok(); }
+}
+
