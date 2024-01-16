@@ -213,7 +213,7 @@ void fiska::Lexer::next_tok_helper() {
     }
     default: {
         if (not is_ident_start(c_)) {
-            todo("Compile error. Expected the start of an identifier");
+            error("Expected the start of an identifier but found '{}'", c_);
         }
         lex_ident();
         break;
