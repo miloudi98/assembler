@@ -168,8 +168,7 @@ struct Lexer {
 
         for (const char* c = info.line_start_; c != info.line_end_; ++c) {
             if (c == error_char) {
-                // TODO: change the 'Here...' with additional help messages.
-                fmt::print(fg(red) | bold, "^ Here...");
+                fmt::print(fg(red) | bold, "^");
             } else {
                 fmt::print(" ");
             }

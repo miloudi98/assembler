@@ -72,7 +72,7 @@ const utils::StringMap<TK> keywords = {
 
 auto fiska::Lexer::file_offset() -> u32 {
     auto f = mod_->ctx_->get_file(fid_);
-    return u32(curr_ - f->data());
+    return u32(curr_ - f->data() - 1);
 }
 
 auto fiska::Lexer::tok() -> Tok& {
@@ -105,8 +105,6 @@ void fiska::Lexer::next_tok_helper() {
     skip_white_space(*this);
 
     tok().loc_.pos_ = file_offset();
-    // FIXME: having each token carry the fid from which it was lexed is a bit of a waste.
-    // Maybe have each |TokenStream| possess its own fid.
     tok().loc_.fid_ = fid_;
 
     switch (c_) {
@@ -227,29 +225,29 @@ void fiska::Lexer::lex_comment() {
 }
 
 void fiska::Lexer::lex_hex_digit() {
-    const char* hex_num_start = curr_;
+    const char* hex_num_start = curr_ - 1;
     // remove the '0x' prefix.
     next_c();
     next_c();
     while (is_hex_digit(c_)) { next_c(); }
 
     tok().kind_ = TK::Num;
-    tok().str_ = mod_->strings_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start)});
+    tok().str_ = mod_->strings_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start - 1)});
 }
 
 void fiska::Lexer::lex_digit() {
-    const char* num_start = curr_;
+    const char* num_start = curr_ - 1;
     while (is_digit(c_)) { next_c(); }
 
     tok().kind_ = TK::Num;
-    tok().str_ = mod_->strings_.save(StrRef{num_start, u32(curr_ - num_start)});
+    tok().str_ = mod_->strings_.save(StrRef{num_start, u32(curr_ - num_start - 1)});
 }
 
 void fiska::Lexer::lex_ident() {
-    const char* ident_start = curr_;
+    const char* ident_start = curr_ - 1;
     while (is_ident_cont(c_)) { next_c(); }
 
-    tok().str_ = mod_->strings_.save(StrRef{ident_start, u32(curr_ - ident_start)});
+    tok().str_ = mod_->strings_.save(StrRef{ident_start, u32(curr_ - ident_start - 1)});
 
     if (auto k = keywords.find(tok().str_); k != keywords.end()) {
         tok().kind_ = k->second;

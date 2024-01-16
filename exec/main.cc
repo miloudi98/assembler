@@ -15,5 +15,9 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
     Lexer::lex_file_into_module(ctx->get_file(fid), mod.get());
 
+    for (auto t : mod->tokens_.storage_) {
+        fmt::print("{}\n", t.spelling());
+    }
+
     return 0;
 }
