@@ -142,6 +142,17 @@ struct Lexer {
 
         LineColInfo info = tok().loc_.line_col_info(mod_->ctx_);
         File* file = mod_->ctx_->get_file(fid_);
+        auto print_ptr_range = [](
+                const char* beg,
+                const char* end,
+                Opt<char> c = std::nullopt,
+                Opt<text_style> style = std::nullopt)
+        {
+            const text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
+            for (const char* ptr = beg; ptr != end; ++ptr) {
+                fmt::print(ts, "{}", c.value_or(*ptr));
+            }
+        };
 
         // Print the file name, line number and column number of where the error happened.
         fmt::print(bold | underline | fg(medium_slate_blue),
@@ -156,28 +167,21 @@ struct Lexer {
         u32 side_bar_size = utils::number_width(info.line_) + std::strlen(" | ");
         fmt::print("{} | ", info.line_);
 
-        auto print_ptr_range = [](const char* beg, const char* end, Opt<char> c = std::nullopt) {
-            for (const char* ptr = beg; ptr != end; ++ptr) {
-                fmt::print(style, "{}", c.value_or(' ')); 
-            }
-        };
-
-        const char* pos_of_problematic_char = file->data() + tok().loc_.pos_;
-
-        print_ptr_range(info.line_start_, pos_of_problematic_char, ' '); 
-        fmt::print(fg(red) | bold, "{}", *pos_of_problematic_char);
-        print_ptr_range(pos_of_problematic_char + 1, info.line_end_, ' ');
+        const char* pos_of_highlighted_char = file->data() + tok().loc_.pos_;
+        print_ptr_range(info.line_start_, pos_of_char_to_highlight, ' '); 
+        fmt::print(fg(red) | bold, "{}", *pos_of_char_to_highlight);
+        print_ptr_range(pos_of_char_to_highlight + 1, info.line_end_, ' ');
         fmt::print("\n");
 
+        // Print a '^' below the highlighted char. The highlighted char is defined
+        // as the last char we lexed when the error happened.
+        //
+        // Skip the line number and the vertical dash.
         for (u32 i = 0; i < side_bar_size; ++i) { fmt::print(" "); }
 
-        for (const char* c = info.line_start_; c != info.line_end_; ++c) {
-            if (c == error_char) {
-                fmt::print(fg(red) | bold, "^");
-            } else {
-                fmt::print(" ");
-            }
-        }
+        print_ptr_range(info.line_start_, pos_of_highlighted_char, ' ');
+        fmt::print(fg(red) | bold, "^");
+        print_ptr_range(pos_of_highlighted_char + 1, info.line_end_, ' ');
         fmt::print("\n");
 
         std::exit(1);
