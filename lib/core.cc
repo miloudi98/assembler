@@ -51,6 +51,10 @@ auto utils::fits_in_i8(i64 num) -> bool { return fits_in_signed<i8>(num); }
 auto utils::fits_in_i16(i64 num) -> bool { return fits_in_signed<i16>(num); }
 auto utils::fits_in_i32(i64 num) -> bool { return fits_in_signed<i32>(num); }
 
+auto utils::number_width(u64 num, u32 base) -> u32 {
+    return num == 0 ? 1 : u32(std::log(num) / std::log(base) + 1);
+}
+
 [[noreturn]] auto utils::assert_helper(
     utils::AK k,
     std::string_view cond,
@@ -79,10 +83,12 @@ auto utils::fits_in_i32(i64 num) -> bool { return fits_in_signed<i32>(num); }
         fmt::print("\n");
         break;
     case AK::Todo:
-        fmt::print(bold | fg(red), "TODO\n");
+        fmt::print(bold | fg(red), "TODO: ");
+        fmt::print("{}\n", message);
         break;
     case AK::Unreachable:
-        fmt::print(bold | fg(red), "Unreachable code reached\n");
+        fmt::print(bold | fg(red), "Unreachable code reached: ");
+        fmt::print("{}\n", message);
         break;
     } // switch
 
@@ -96,7 +102,7 @@ auto utils::fits_in_i32(i64 num) -> bool { return fits_in_signed<i32>(num); }
 }
 
 
-auto load_file(const fs::path& path) -> Vec<char> {
+auto utils::load_file(const fs::path& path) -> Vec<char> {
     i32 fd = open(path.c_str(), O_RDONLY);
     defer { close(fd); };
     assert(fd >= 0, "Failed to open file '{}'", path.string());

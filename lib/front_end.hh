@@ -4,6 +4,8 @@
 #include "lib/core.hh"
 #include "lib/x86_core.hh"
 
+#include <cstring>
+
 namespace fiska {
 
 enum struct BW : u16 {
@@ -73,12 +75,9 @@ struct ProcExpr : public Expr {
 
 struct TokStream {
     using Storage = Vec<Tok>;
-    using iterator = Vec<Tok>::iterator;
     Storage storage_;
 
     auto allocate() -> Tok* { return &storage_.emplace_back(); }
-    auto begin() -> iterator { return storage_.begin(); }
-    auto end() -> iterator { return storage_.end(); }
 };
 
 struct Module {
@@ -86,7 +85,9 @@ struct Module {
     TokStream tokens_;
     Vec<Expr*> ast_;
     Vec<ProcExpr*> procs_;
-    Context* ctx_;
+    Context* ctx_{};
+
+    Module() {}
 
     Module(const Module&) = delete;
     Module(Module&&) = delete;
@@ -94,6 +95,20 @@ struct Module {
     Module& operator=(Module&&) = delete;
 };
 
+struct Context {
+    Vec<Box<File>> files_;
+    Vec<Box<Module>> modules_;
+
+    Context() {}
+
+    Context(const Context&) = delete;
+    Context(Context&&) = delete;
+    Context& operator=(const Context&) = delete;
+    Context& operator=(Context&&) = delete;
+
+    auto get_file(u16 fid) -> File*; 
+    auto load_file(const fs::path& path) -> u16; 
+};
 
 struct Lexer {
     const char* curr_{};
@@ -102,56 +117,71 @@ struct Lexer {
     u16 fid_{};
     Module* mod_{};
 
-    explicit Lexer(const File& file, Module* mod)
-        : curr_(file.data()),
-        end_(file.data() + file.size()),
-        fid_(file.fid_), 
+    explicit Lexer(File* file, Module* mod)
+        : curr_(file->data()),
+        end_(file->data() + file->size()),
+        fid_(file->fid_), 
         mod_(mod)
-    {}
+    {
+        next_c();
+        next_tok();
+    }
+
+    static void lex_file_into_module(File* file, Module* mod) {
+        Lexer lxr{file, mod};
+        while (lxr.tok().kind_ != TK::Eof) {
+            lxr.next_tok();
+        }
+    }
 
     template <typename... Args>
-    [[noreturn]] auto error(fmt::format_args<Args...> fmt, Args&&... args) -> void {
-        LineColInfo info = tok().loc_.line_col_info(ctx_);
-        // Need to show the filename and the line number.
-        // I have the fid so I can get the filename of the file I am currently lexing.
-        fmt::print("filename: {}\n", ctx_->get_file(fid_)->path_);
-        fmt::print("line number = {}, line col = {}\n", info.line_, info.col_);
-        // 1 | #include "lib/front_end.hh"
-        //   |          ^
-        //   |          |___ Print the error message here.
+    [[noreturn]] auto error(fmt::format_string<Args...> fmt, Args&&... args) -> void {
+        using enum fmt::color;
+        using enum fmt::emphasis;
 
-        // print the line number and the vertical dash.
-        fmt::print(" {} | ", info.line_);
+        LineColInfo info = tok().loc_.line_col_info(mod_->ctx_);
+        File* file = mod_->ctx_->get_file(fid_);
+        const char* error_char = file->data() + tok().loc_.pos_;
 
-        // pseudo code
-        const char* problematic_char = file.start() + loc_.pos_;
-        for (auto c = file.start(); c != problematic_char; ++c) {
-            fmt::print("{}", c);
-        }
-        fmt::print(fg(red) | bold, "{}", *problematic_char);
-        for (auto c = problematic_char + 1; c != line_end; ++c) {
-            fmt::print("{}", c);
-        }
+        fmt::print(bold | underline | fg(medium_slate_blue),
+                "\u2192 {}:{}:{}", file->path_.string() , info.line_, info.col_);
 
-        auto col_width = 1 + width_of_number(info.line_) + strlen(" | ");
-        for (auto i = 0; i < col_width + (problematic_char - line_start); ++i) {
-            fmt::print(" ");
-        }
-        fmt::print(fg(red) | bold, "^\n");
-        
-        for (auto i = 0; i < col_width + (problematic_char - line_start); ++i) {
-            fmt::print(" ");
-        }
-        fmt::print(bold | fg(red), "|___, {}\n", msg);
+        fmt::print(bold | fg(red), " Compile error: ");
+        fmt::print(fmt, std::forward<Args>(args)...);
+        fmt::print("\n");
 
-        std::exit(EC::LexError);
+        // Print the line number and the vertical dash.
+        u32 side_bar_size = std::strlen("    ") + utils::number_width(info.line_) + std::strlen(" | ");
+
+        fmt::print("    {} | ", info.line_);
+
+        for (const char* c = info.line_start_; c != info.line_end_; ++c) {
+            if (c == error_char) {
+                fmt::print(fg(red) | bold, "{}", *c);
+            } else {
+                fmt::print("{}", *c);
+            }
+        }
+        fmt::print("\n");
+
+        for (u32 i = 0; i < side_bar_size; ++i) { fmt::print(" "); }
+
+        for (const char* c = info.line_start_; c != info.line_end_; ++c) {
+            if (c == error_char) {
+                // TODO: change the 'Here...' with additional help messages.
+                fmt::print(fg(red) | bold, "^ Here...");
+            } else {
+                fmt::print(" ");
+            }
+        }
+        fmt::print("\n");
+
+        std::exit(1);
     }
 
     auto eof() -> bool { return curr_ >= end_; }
     auto tok() -> Tok&;
-    // A lookahead of '0' means that you are peeking the current char which is
-    // the same thing as |c_|. |peek_c(1)| would yield the char right after |c_|.
-    auto peek_c(u32 lookahead) -> char;
+    auto peek_c() -> char;
     auto file_offset() -> u32;
     void next_c();
     void next_tok();
@@ -161,46 +191,6 @@ struct Lexer {
     void lex_digit();
     void lex_ident();
 };
-
-//struct LexError {
-//    Location loc_{};
-//    std::string msg_{};
-//    Context* ctx_{};
-//
-//    [[noreturn]] LexError(Context* ctx, Location loc, fmt::format<Args...> fmt, Args&&... args) 
-//        : loc_(loc), msg(std::move(msg)), ctx_(ctx) {
-//        LineColInfo info = loc.line_col_info(ctx_);
-//        // 1 | #include "lib/front_end.hh"
-//        //   |          ^
-//        //   |          |___ Print the error message here.
-//
-//        // print the line number and the vertical dash.
-//        fmt::print(" {} | ", info.line_);
-//
-//        // pseudo code
-//        const char* problematic_char = file.start() + loc_.pos_;
-//        for (auto c = file.start(); c != problematic_char; ++c) {
-//            fmt::print("{}", c);
-//        }
-//        fmt::print(fg(red) | bold, "{}", *problematic_char);
-//        for (auto c = problematic_char + 1; c != line_end; ++c) {
-//            fmt::print("{}", c);
-//        }
-//
-//        auto col_width = 1 + width_of_number(info.line_) + strlen(" | ");
-//        for (auto i = 0; i < col_width + (problematic_char - line_start); ++i) {
-//            fmt::print(" ");
-//        }
-//        fmt::print(fg(red) | bold, "^\n");
-//        
-//        for (auto i = 0; i < col_width + (problematic_char - line_start); ++i) {
-//            fmt::print(" ");
-//        }
-//        fmt::print(bold | fg(red), "|___, {}\n", msg);
-//
-//        std::exit(EC::LexError);
-//    }
-//};
 
 }  // namespace fiska
 

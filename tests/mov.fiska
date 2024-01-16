@@ -1,0 +1,6 @@
+// One line comment
+fn function {
+    mov(b64 rax, b64 011223344);
+    mov(b32 rax, @b32 [rax][2][rbx] + 0x112233);
+    mov(b32 r12, @b32 0x11223344);
+}

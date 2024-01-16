@@ -141,6 +141,8 @@ auto fits_in_b8(i64 num) -> bool;
 auto fits_in_b16(i64 num) -> bool;
 auto fits_in_b32(i64 num) -> bool;
 
+auto number_width(u64 num, u32 base = 10) -> u32;
+
 auto load_file(const fs::path& path) -> Vec<char>;
 
 }  // namespace utils
@@ -149,6 +151,9 @@ auto load_file(const fs::path& path) -> Vec<char>;
 //=======================================================================================
 // Helper Macros.
 //=======================================================================================
+#define CAT(x, y) CAT_HELPER(x, y)
+#define CAT_HELPER(x, y) x##y
+
 #define FISKA_PRAGMA_HELPER(x) _Pragma (#x)
 
 #define GCC_DIAG_IGNORE_PUSH(warning) \
@@ -158,7 +163,7 @@ auto load_file(const fs::path& path) -> Vec<char>;
 #define GCC_DIAG_IGNORE_POP() \
     _Pragma("GCC diagnostic pop")
 
-#define defer ::utils::DeferType1{}->*[&]
+#define defer auto CAT(__defer, __COUNTER__) = ::utils::DeferType1{}->*[&]
 
 #define assert(cond, ...)  (cond ? void(0) :       \
     ::utils::assert_helper(                        \

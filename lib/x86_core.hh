@@ -9,7 +9,7 @@
 
 namespace fiska {
 
-struct Module;
+struct Context;
 
 struct File {
     u16 fid_{};
@@ -35,22 +35,9 @@ struct StringInterner {
     auto save(StrRef str) -> StrRef; 
 
     ~StringInterner() {
-        rgs::for_each(storage_, [](char* alloc) { delete alloc; });
+        rgs::for_each(storage_, [](char* alloc) { delete[] alloc; });
     }
 
-};
-
-struct Context {
-    Vec<Box<File>> files_;
-    Vec<Box<Module>> modules_;
-
-    Context(const Context&) = delete;
-    Context(Context&&) = delete;
-    Context& operator=(const Context&) = delete;
-    Context& operator=(Context&&) = delete;
-
-    auto get_file(u16 fid) -> File*; 
-    auto load_file(const fs::path& path) -> u16; 
 };
 
 struct LineColInfo {
@@ -68,6 +55,7 @@ struct Location {
     auto source_text(Context* ctx) -> StrRef;
     auto line_col_info(Context* ctx) -> LineColInfo;
 };
+
 
 }  // namespace fiska
 

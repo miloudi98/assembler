@@ -6,6 +6,8 @@
 
 namespace {
 
+using TK = fiska::TK;
+
 // Below are the characters considered to be whitespace.
 // \n: New line.
 // \t: Tab.
@@ -83,8 +85,8 @@ void fiska::Lexer::next_c() {
     c_ = eof() ? 0 : *curr_++;
 }
 
-auto fiska::Lexer::peek_c(u32 lookahead) -> char {
-    return curr_ + lookahead >= end_ ? 0 : *(curr_ + lookahead);
+auto fiska::Lexer::peek_c() -> char {
+    return eof() ? 0 : *curr_;
 }
 
 
@@ -104,7 +106,7 @@ void fiska::Lexer::next_tok_helper() {
 
     tok().loc_.pos_ = file_offset();
     // FIXME: having each token carry the fid from which it was lexed is a bit of a waste.
-    // Maybe have each |TokenStream| have its own fid.
+    // Maybe have each |TokenStream| possess its own fid.
     tok().loc_.fid_ = fid_;
 
     switch (c_) {
@@ -171,8 +173,8 @@ void fiska::Lexer::next_tok_helper() {
     case '/': {
         // Eat the first '/'
         next_c();
-        if (not at('/')) {
-            todo("Compile error. Expected a '/' after the first '/' to begin a line comment");
+        if (c_ != '/') {
+            error("Expected a line comment after '/', but found '{}'.", c_);
         }
         // Eat the second '/'
         next_c();
@@ -180,10 +182,10 @@ void fiska::Lexer::next_tok_helper() {
         return next_tok_helper();
     }
     case '0': {
-        char cc = peek_c(1);
+        char cc = peek_c();
         if (is_digit(cc)) {
-            todo("Compile error. Leading zeros in non-hex digits is not supported "
-                    "Hex digits must be preceded with a '0x' prefix");
+            error("Leading zeros are not supported in a decimal number. "
+                    "Hex digits must be preceded with a '0x' prefix.");
         }
         // Encountered a '0x' prefix.
         if (cc == 'x') {
@@ -232,7 +234,7 @@ void fiska::Lexer::lex_hex_digit() {
     while (is_hex_digit(c_)) { next_c(); }
 
     tok().kind_ = TK::Num;
-    tok().str_ = mod_->tokens_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start)});
+    tok().str_ = mod_->strings_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start)});
 }
 
 void fiska::Lexer::lex_digit() {
@@ -240,14 +242,15 @@ void fiska::Lexer::lex_digit() {
     while (is_digit(c_)) { next_c(); }
 
     tok().kind_ = TK::Num;
-    tok().str_ = mod_->tokens_.save(StrRef{num_start, u32(curr_ - num_start)});
+    tok().str_ = mod_->strings_.save(StrRef{num_start, u32(curr_ - num_start)});
 }
 
 void fiska::Lexer::lex_ident() {
     const char* ident_start = curr_;
     while (is_ident_cont(c_)) { next_c(); }
 
-    tok().str_ = mod_->tokens_.save(StrRef{ident_start, u32(curr_ - num_start)});
+    tok().str_ = mod_->strings_.save(StrRef{ident_start, u32(curr_ - ident_start)});
+
     if (auto k = keywords.find(tok().str_); k != keywords.end()) {
         tok().kind_ = k->second;
     } else {
@@ -255,7 +258,7 @@ void fiska::Lexer::lex_ident() {
     }
 }
 
-auto fiska::Lexer::spelling() -> StrRef {
+auto fiska::Tok::spelling() -> StrRef {
     switch (kind_) {
     case TK::LParen: return "<(>";
     case TK::RParen: return "<)>";
@@ -277,5 +280,6 @@ auto fiska::Lexer::spelling() -> StrRef {
     case TK::Mnemonic: return "<MNEMONIC>";
     case TK::Eof: return "<EOF>";
     } // switch
+    unreachable();
 }
 

@@ -1,6 +1,7 @@
 #include "lib/x86_core.hh"
 
 #include "lib/core.hh"
+#include "lib/front_end.hh"
 
 auto fiska::Location::source_text(Context* ctx) -> StrRef {
     File* file = ctx->get_file(fid_);
