@@ -5,6 +5,7 @@
 #include "lib/x86_core.hh"
 
 #include <cstring>
+#include <string_view>
 
 namespace fiska {
 
@@ -141,27 +142,31 @@ struct Lexer {
 
         LineColInfo info = tok().loc_.line_col_info(mod_->ctx_);
         File* file = mod_->ctx_->get_file(fid_);
-        const char* error_char = file->data() + tok().loc_.pos_;
 
+        // Print the file name, line number and column number of where the error happened.
         fmt::print(bold | underline | fg(medium_slate_blue),
                 "\u2192 {}:{}:{}", file->path_.string() , info.line_, info.col_);
 
+        // Print the error kind and the error message to the user.
         fmt::print(bold | fg(red), " Compile error: ");
         fmt::print(fmt, std::forward<Args>(args)...);
         fmt::print("\n");
 
         // Print the line number and the vertical dash.
-        u32 side_bar_size = std::strlen("    ") + utils::number_width(info.line_) + std::strlen(" | ");
+        u32 side_bar_size = utils::number_width(info.line_) + std::strlen(" | ");
+        fmt::print("{} | ", info.line_);
 
-        fmt::print("    {} | ", info.line_);
-
-        for (const char* c = info.line_start_; c != info.line_end_; ++c) {
-            if (c == error_char) {
-                fmt::print(fg(red) | bold, "{}", *c);
-            } else {
-                fmt::print("{}", *c);
+        auto print_ptr_range = [](const char* beg, const char* end, Opt<char> c = std::nullopt) {
+            for (const char* ptr = beg; ptr != end; ++ptr) {
+                fmt::print(style, "{}", c.value_or(' ')); 
             }
-        }
+        };
+
+        const char* pos_of_problematic_char = file->data() + tok().loc_.pos_;
+
+        print_ptr_range(info.line_start_, pos_of_problematic_char, ' '); 
+        fmt::print(fg(red) | bold, "{}", *pos_of_problematic_char);
+        print_ptr_range(pos_of_problematic_char + 1, info.line_end_, ' ');
         fmt::print("\n");
 
         for (u32 i = 0; i < side_bar_size; ++i) { fmt::print(" "); }
