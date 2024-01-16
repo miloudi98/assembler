@@ -16,6 +16,10 @@ enum struct BW : u16 {
     B64 = 64
 };
 
+// TODO: fill in this enum with the appropriate values.
+enum struct RI {
+};
+
 enum struct TK {
     // One character tokens.
     // '('
@@ -223,6 +227,24 @@ struct Parser {
 
     explicit Parser(Module* mod) 
         : mod_(mod), curr_tok_it_(mod->tokens_.begin()) {}
+
+    template <typename... TokTys>
+    requires (std::same_as<TK, TokTys> and ...)
+    auto at(TokTys... tok_tys) -> bool {
+        return ((tok().kind_ == tok_tys) or ...);
+    }
+
+    template <typename... TokTys>
+    requires (std::same_as<TK, TokTys> and ...)
+    auto consume(TokTys... tok_tys) -> bool {
+        if (not at(tok_tys...)) { return false; }
+        // TODO: complete
+
+    }
+
+    auto parse_proc_expr() -> ProcExpr*;
+    auto tok() -> const Tok&;
+
 };
 
 }  // namespace fiska
