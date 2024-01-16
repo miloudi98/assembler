@@ -238,13 +238,13 @@ struct Parser {
     requires (std::same_as<TK, TokTys> and ...)
     auto consume(TokTys... tok_tys) -> bool {
         if (not at(tok_tys...)) { return false; }
-        // TODO: complete
-
+        next_tok();
     }
 
     auto parse_proc_expr() -> ProcExpr*;
+    auto parse_x86_instruction() -> X86Instruction*;
     auto tok() -> const Tok&;
-
+    void next_tok();
 };
 
 }  // namespace fiska

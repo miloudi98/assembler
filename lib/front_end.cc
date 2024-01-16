@@ -308,7 +308,16 @@ auto fiska::Parser::tok() -> Tok& {
     return *current_tok_it_;
 }
 
-auto fiska::Parser::parse_proc_expr() -> ProcExpr* {
+void fiska::Parser::next_tok() {
+    if (tok().kind_ == TK::Eof) { return; }
+    curr_tok_it_++;
+}
 
+auto fiska::Parser::parse_proc_expr() -> ProcExpr* {
+    todo("to be implemented");
+}
+
+auto fiska::Parser::parse_x86_instruction() -> X86Instruction* {
+    todo("to be implemented");
 }
 
