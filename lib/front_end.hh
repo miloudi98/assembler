@@ -88,6 +88,18 @@ enum struct TK {
 enum struct EK {
     UnrecognizedChar,
     UnexpectedChar,
+    UnexpectedTok,
+};
+
+struct Error {
+    EK kind_{};
+    Context* ctx_{};
+    u16 fid_{};
+    Location loc_{};
+    union {
+        char c_{};
+        TK tok_kind_{};
+    } data_;
 };
 
 struct Tok {
@@ -264,6 +276,86 @@ struct Lexer {
     static void lex_file_into_module(File* file, Module* mod);
 };
 
+template <typename... Args>
+[[noreturn]] auto report_error(
+    const Error& err,
+    EK ek,
+    Context* ctx,
+    u16 fid,
+    const Tok& tok,
+    fmt::format_string<Args...> fmt,
+    Args&&... args
+) -> void
+{
+    using enum fmt::color;
+    using enum fmt::emphasis;
+
+    LineColInfo info = tok.loc_.line_col_info(mod_->ctx_);
+    File* file = err.ctx_->get_file(err.fid_)
+    auto print_ptr_range = [](
+            const char* beg,
+            const char* end,
+            Opt<char> c = std::nullopt,
+            Opt<fmt::text_style> style = std::nullopt)
+    {
+        const fmt::text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
+        for (const char* ptr = beg; ptr != end; ++ptr) {
+            fmt::print(ts, "{}", c.value_or(*ptr));
+        }
+    };
+    auto print_spaces = [](u32 num) { while(num--) { fmt::print(" "); } };
+
+
+    // Print the file name, line number and column number of where the error happened.
+    fmt::print(bold | underline | fg(medium_slate_blue),
+            "\u2192 {}:{}:{}", file->path_.string() , info.line_, info.col_);
+
+    // Print the error kind and the error message to the user.
+    fmt::print(bold | fg(red), " Compile error: ");
+    // Print a short message summarizing the error.
+    switch (ek) {
+    case EK::UnexpectedChar: {
+        fmt::print(bold | fg(light_gray), "Unexpected character encountered: '{}'.", c_);
+        break;
+    }
+    case EK::UnrecognizedChar: {
+        fmt::print(bold | fg(light_gray), "Unrecognized character: '{}'.", c_);
+        break;
+    }
+    case EK::UnexpectedTok: {
+        fmt::print(bold | fg(light_gray), "Unexpected token encountered: '{}'.", Tok::spelling(tok.kind_));
+        break;
+    }
+    } // switch
+    fmt::print("\n");
+
+    // Print the line number and the vertical dash.
+    fmt::print("{} | ", info.line_);
+
+    // Print the line where the error occured and highlight the last char we 
+    // lexed when the error occured.
+    const char* pos_of_highlighted_char = file->data() + tok().loc_.pos_;
+
+    print_ptr_range(info.line_start_, pos_of_highlighted_char); 
+    fmt::print(fg(red) | bold, "{}", *pos_of_highlighted_char);
+    print_ptr_range(pos_of_highlighted_char + 1, info.line_end_);
+    fmt::print("\n");
+
+    // Print a '^' and a detailed error message below the highlighted char. 
+    // The highlighted char is defined as the last char we lexed when the error happened.
+    //
+    // Skip the line number and the vertical dash.
+    print_spaces(/*side_bar_size=*/utils::number_width(info.line_) + std::strlen(" | "));
+
+    print_ptr_range(info.line_start_, pos_of_highlighted_char, ' ');
+    fmt::print(fg(red) | bold, "^ ");
+    fmt::print(fg(medium_slate_blue) | bold, fmt::format(fmt, std::forward<Args>(args)...));
+    print_ptr_range(pos_of_highlighted_char + 1, info.line_end_, ' ');
+    fmt::print("\n");
+
+    std::exit(1);
+}
+
 struct Parser {
     Module* mod_{};
     u16 fid_{};
@@ -273,8 +365,47 @@ struct Parser {
         : mod_(mod), fid_(file->fid_), curr_tok_it_(mod->tokens_.begin()) {}
 
     template <typename... Args>
-    [[noreturn]] void error(EK ek, fmt::format_string<Args...> fmt, Args&&... args) {
-        todo("implement error reporting in the parser");
+    [[noreturn]] auto error(EK ek, fmt::format_string<Args...> fmt, Args&&... args) -> void {
+        using enum fmt::color;
+        using enum fmt::emphasis;
+
+        LineColInfo info = tok().loc_.line_col_info(mod_->ctx_);
+        File* file = mod_->ctx_->get_file(fid_);
+        auto print_ptr_range = [](
+                const char* beg,
+                const char* end,
+                Opt<char> c = std::nullopt,
+                Opt<fmt::text_style> style = std::nullopt)
+        {
+            const fmt::text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
+            for (const char* ptr = beg; ptr != end; ++ptr) {
+                fmt::print(ts, "{}", c.value_or(*ptr));
+            }
+        };
+        auto print_spaces = [](u32 num) { while(num--) { fmt::print(" "); } };
+
+        // Print the file name, line number and column number of where the error happened.
+        fmt::print(bold | underline | fg(medium_slate_blue),
+                "\u2192 {}:{}:{}", file->path_.string() , info.line_, info.col_);
+
+        // Print a short message summarizing the error.
+        switch (ek) {
+        case EK::UnexpectedChar: {
+            fmt::print(bold | fg(light_gray), "Unexpected character encountered: '{}'.", c_);
+            break;
+        }
+        case EK::UnrecognizedChar: {
+            fmt::print(bold | fg(light_gray), "Unrecognized character: '{}'.", c_);
+            break;
+        }
+        case EK::UnexpectedTok: {
+            fmt::print(bold | fg(light_gray), "Unexpected token encountered: '{}'.", Tok::spelling(tok().kind_));
+            break;
+        }
+        } // switch
+        fmt::print("\n");
+
+        todo();
     }
 
     auto at(std::same_as<TK> auto... tok_tys) -> bool {
@@ -289,7 +420,7 @@ struct Parser {
 
     void expect(TK tok_kind) {
         if (consume(tok_kind)) { return; }
-        error(EK::UnexpectedChar
+        error(EK::UnexpectedTok
                 , "was expecting the token '{}' but found '{}' instead.",
                 Tok::spelling(tok_kind), Tok::spelling(tok().kind_));
     }
