@@ -7,6 +7,7 @@
 namespace {
 
 using TK = fiska::TK;
+using RI = fiska::RI;
 
 // Below are the characters considered to be whitespace.
 // \n: New line.
@@ -59,11 +60,13 @@ const utils::StringMap<TK> keywords = {
 
     {"cr0", TK::Reg}, {"cr1", TK::Reg}, {"cr2", TK::Reg}, {"cr3", TK::Reg}, {"cr4", TK::Reg},
     {"cr5", TK::Reg}, {"cr6", TK::Reg}, {"cr7", TK::Reg}, {"cr8", TK::Reg}, {"cr9", TK::Reg},
-    {"cr10", TK::Reg}, {"cr11", TK::Reg}, {"cr12", TK::Reg}, {"cr13", TK::Reg}, {"cr14", TK::Reg}, {"cr15", TK::Reg},
+    {"cr10", TK::Reg}, {"cr11", TK::Reg}, {"cr12", TK::Reg}, {"cr13", TK::Reg}, {"cr14", TK::Reg},
+    {"cr15", TK::Reg},
 
     {"dbg0", TK::Reg}, {"dbg1", TK::Reg}, {"dbg2", TK::Reg}, {"dbg3", TK::Reg}, {"dbg4", TK::Reg},
     {"dbg5", TK::Reg}, {"dbg6", TK::Reg}, {"dbg7", TK::Reg}, {"dbg8", TK::Reg}, {"dbg9", TK::Reg},
-    {"dbg10", TK::Reg}, {"dbg11", TK::Reg}, {"dbg12", TK::Reg}, {"dbg13", TK::Reg}, {"dbg14", TK::Reg}, {"dbg15", TK::Reg},
+    {"dbg10", TK::Reg}, {"dbg11", TK::Reg}, {"dbg12", TK::Reg}, {"dbg13", TK::Reg}, {"dbg14", TK::Reg},
+    {"dbg15", TK::Reg},
 
     {"mov", TK::Mnemonic}
 };
@@ -200,6 +203,9 @@ void fiska::Lexer::next_tok_helper() {
     case '0': {
         char cc = peek_c();
         if (is_digit(cc)) {
+            // Eat the '0' and then error out. This is to make sure the error message displays
+            // the correct unexpected char which is 'cc' and not '0'.
+            next_c();
             error(EK::UnexpectedChar, "Leading zeros are not allowed in a decimal number. "
                     "Hex numbers must be preceded with a '0x' prefix.");
         }
@@ -228,7 +234,7 @@ void fiska::Lexer::next_tok_helper() {
         break;
     }
     default: {
-        if (ident_start(c_)) {
+        if (is_ident_start(c_)) {
             lex_ident();
             break;
         }
@@ -274,8 +280,8 @@ void fiska::Lexer::lex_ident() {
     }
 }
 
-auto fiska::Tok::spelling() -> StrRef {
-    switch (kind_) {
+auto fiska::Tok::spelling(TK kind) -> StrRef {
+    switch (kind) {
     case TK::LParen: return "<(>";
     case TK::RParen: return "<)>";
     case TK::LBrace: return "<{>";
@@ -304,8 +310,23 @@ void fiska::Lexer::lex_file_into_module(File* file, Module* mod) {
     while (lxr.tok().kind_ != TK::Eof) { lxr.next_tok(); }
 }
 
-auto fiska::Parser::tok() -> Tok& {
-    return *current_tok_it_;
+
+void* fiska::Expr::operator new(usz sz, Module* mod) {
+    auto expr = static_cast<Expr*>(::operator new(sz));
+    mod->ast_.push_back(expr);
+
+    if (expr->kind_ == ExprKind::ProcExpr) {
+        mod->procs_.push_back(static_cast<ProcExpr*>(expr));
+    }
+    return expr;
+}
+
+fiska::Module::~Module() {
+    rgs::for_each(ast_, [](Expr* expr) { delete expr; });
+}
+
+auto fiska::Parser::tok() -> const Tok& {
+    return *curr_tok_it_;
 }
 
 void fiska::Parser::next_tok() {
@@ -314,10 +335,27 @@ void fiska::Parser::next_tok() {
 }
 
 auto fiska::Parser::parse_proc_expr() -> ProcExpr* {
-    todo("to be implemented");
+    expect(TK::Fn);
+    StrRef func_name = tok().str_;
+    expect(TK::Ident);
+    expect(TK::LBrace);
+
+    Vec<Box<X86Instruction>> instructions;
+    while (not at(TK::RBrace)) {
+        instructions.push_back(Box<X86Instruction>{parse_x86_instruction()});
+    }
+    expect(TK::RBrace);
+
+    return new (mod_) ProcExpr(func_name, std::move(instructions));
 }
 
 auto fiska::Parser::parse_x86_instruction() -> X86Instruction* {
     todo("to be implemented");
 }
 
+void fiska::Parser::parse_file_into_module(File* file, Module* mod) {
+    Parser p{file, mod};
+    while (p.tok().kind_ != TK::Eof) {
+        p.parse_proc_expr();
+    }
+}

@@ -16,8 +16,10 @@ auto main(i32 argc, char* argv[]) -> i32 {
     Lexer::lex_file_into_module(ctx->get_file(fid), mod.get());
 
     for (auto t : mod->tokens_.storage_) {
-        fmt::print("{}\n", t.spelling());
+        fmt::print("{}\n", Tok::spelling(t.kind_));
     }
+
+    Parser::parse_file_into_module(ctx->get_file(fid), mod.get());
 
     return 0;
 }

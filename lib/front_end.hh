@@ -9,6 +9,8 @@
 
 namespace fiska {
 
+struct Module;
+
 enum struct BW : u16 {
     B8 = 8,
     B16 = 16,
@@ -16,8 +18,24 @@ enum struct BW : u16 {
     B64 = 64
 };
 
-// TODO: fill in this enum with the appropriate values.
 enum struct RI {
+    Rax = 0,  Es = 16, Cr0 = 24,  Dbg0 = 40, 
+    Rcx = 1,  Cs = 17, Cr1 = 25,  Dbg1 = 41, 
+    Rdx = 2,  Ss = 18, Cr2 = 26,  Dbg2 = 42, 
+    Rbx = 3,  Ds = 19, Cr3 = 27,  Dbg3 = 43, 
+    Rsp = 4,  Fs = 20, Cr4 = 28,  Dbg4 = 44, 
+    Rbp = 5,  Gs = 21, Cr5 = 29,  Dbg5 = 45, 
+    Rip = 5,
+    Rsi = 6,           Cr6 = 30,  Dbg6 = 46, 
+    Rdi = 7,           Cr7 = 31,  Dbg7 = 47, 
+    R8 = 8,            Cr8 = 32,  Dbg8 = 48,  
+    R9 = 9,            Cr9 = 33,  Dbg9 = 49,
+    R10 = 10,          Cr10 = 34, Dbg10 = 50,
+    R11 = 11,          Cr11 = 35, Dbg11 = 51,
+    R12 = 12,          Cr12 = 36, Dbg12 = 52,
+    R13 = 13,          Cr13 = 37, Dbg13 = 53,
+    R14 = 14,          Cr14 = 38, Dbg14 = 54,
+    R15 = 15,          Cr15 = 39, Dbg15 = 55,
 };
 
 enum struct TK {
@@ -77,13 +95,34 @@ struct Tok {
     StrRef str_{};
     Location loc_{};
 
-    auto spelling() -> StrRef;
+    static auto spelling(TK kind) -> StrRef;
+};
+
+struct X86Instruction {
+};
+
+
+enum struct ExprKind {
+    ProcExpr,
 };
 
 struct Expr {
+    ExprKind kind_{};
+
+    Expr(ExprKind kind) : kind_(kind) {}
+    virtual ~Expr() = default;
+
+    void* operator new(usz sz, Module* mod);
+    void* operator new(usz sz) = delete;
 };
 
 struct ProcExpr : public Expr {
+    StrRef func_name_{};
+    Vec<Box<X86Instruction>> instructions_{};
+
+    ProcExpr(StrRef func_name, Vec<Box<X86Instruction>> instructions)
+        : Expr(ExprKind::ProcExpr), func_name_(func_name),
+        instructions_(std::move(instructions)) {}
 };
 
 struct TokStream {
@@ -92,7 +131,7 @@ struct TokStream {
     Storage storage_;
 
     auto allocate() -> Tok* { return &storage_.emplace_back(); }
-    auto begin() -> Iterator { return storage_->begin(); }
+    auto begin() -> Iterator { return storage_.begin(); }
     auto end() -> Iterator { return storage_.end(); }
 };
 
@@ -104,6 +143,7 @@ struct Module {
     Context* ctx_{};
 
     Module() {}
+    ~Module();
 
     Module(const Module&) = delete;
     Module(Module&&) = delete;
@@ -154,14 +194,14 @@ struct Lexer {
                 const char* beg,
                 const char* end,
                 Opt<char> c = std::nullopt,
-                Opt<text_style> style = std::nullopt)
+                Opt<fmt::text_style> style = std::nullopt)
         {
-            const text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
+            const fmt::text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
             for (const char* ptr = beg; ptr != end; ++ptr) {
                 fmt::print(ts, "{}", c.value_or(*ptr));
             }
         };
-        auto print_spaces = [](u32 num) { while(num--) { fmt::print(' '); } };
+        auto print_spaces = [](u32 num) { while(num--) { fmt::print(" "); } };
 
 
         // Print the file name, line number and column number of where the error happened.
@@ -173,10 +213,12 @@ struct Lexer {
         // Print a short message summarizing the error.
         switch (ek) {
         case EK::UnexpectedChar: {
-            fmt::print(fg(bold), "Unexpected character encountered: '{}'", c_);
+            fmt::print(bold | fg(light_gray), "Unexpected character encountered: '{}'.", c_);
+            break;
         }
         case EK::UnrecognizedChar: {
-            fmt::print(fg(bold), "Unrecognized character: '{}'", c_);
+            fmt::print(bold | fg(light_gray), "Unrecognized character: '{}'.", c_);
+            break;
         }
         } // switch
         fmt::print("\n");
@@ -188,9 +230,9 @@ struct Lexer {
         // lexed when the error occured.
         const char* pos_of_highlighted_char = file->data() + tok().loc_.pos_;
 
-        print_ptr_range(info.line_start_, pos_of_char_to_highlight, ' '); 
-        fmt::print(fg(red) | bold, "{}", *pos_of_char_to_highlight);
-        print_ptr_range(pos_of_char_to_highlight + 1, info.line_end_, ' ');
+        print_ptr_range(info.line_start_, pos_of_highlighted_char); 
+        fmt::print(fg(red) | bold, "{}", *pos_of_highlighted_char);
+        print_ptr_range(pos_of_highlighted_char + 1, info.line_end_);
         fmt::print("\n");
 
         // Print a '^' and a detailed error message below the highlighted char. 
@@ -200,7 +242,8 @@ struct Lexer {
         print_spaces(/*side_bar_size=*/utils::number_width(info.line_) + std::strlen(" | "));
 
         print_ptr_range(info.line_start_, pos_of_highlighted_char, ' ');
-        fmt::print(fg(red) | bold, "^ {}", fmt::format(fmt, std::forward<Args>(args)...));
+        fmt::print(fg(red) | bold, "^ ");
+        fmt::print(fg(medium_slate_blue) | bold, fmt::format(fmt, std::forward<Args>(args)...));
         print_ptr_range(pos_of_highlighted_char + 1, info.line_end_, ' ');
         fmt::print("\n");
 
@@ -223,28 +266,39 @@ struct Lexer {
 
 struct Parser {
     Module* mod_{};
+    u16 fid_{};
     TokStream::Iterator curr_tok_it_{};
 
-    explicit Parser(Module* mod) 
-        : mod_(mod), curr_tok_it_(mod->tokens_.begin()) {}
+    explicit Parser(File* file, Module* mod) 
+        : mod_(mod), fid_(file->fid_), curr_tok_it_(mod->tokens_.begin()) {}
 
-    template <typename... TokTys>
-    requires (std::same_as<TK, TokTys> and ...)
-    auto at(TokTys... tok_tys) -> bool {
+    template <typename... Args>
+    [[noreturn]] void error(EK ek, fmt::format_string<Args...> fmt, Args&&... args) {
+        todo("implement error reporting in the parser");
+    }
+
+    auto at(std::same_as<TK> auto... tok_tys) -> bool {
         return ((tok().kind_ == tok_tys) or ...);
     }
 
-    template <typename... TokTys>
-    requires (std::same_as<TK, TokTys> and ...)
-    auto consume(TokTys... tok_tys) -> bool {
+    auto consume(std::same_as<TK> auto... tok_tys) -> bool {
         if (not at(tok_tys...)) { return false; }
         next_tok();
+        return true;
+    }
+
+    void expect(TK tok_kind) {
+        if (consume(tok_kind)) { return; }
+        error(EK::UnexpectedChar
+                , "was expecting the token '{}' but found '{}' instead.",
+                Tok::spelling(tok_kind), Tok::spelling(tok().kind_));
     }
 
     auto parse_proc_expr() -> ProcExpr*;
     auto parse_x86_instruction() -> X86Instruction*;
     auto tok() -> const Tok&;
     void next_tok();
+    static void parse_file_into_module(File* file, Module* mod);
 };
 
 }  // namespace fiska
