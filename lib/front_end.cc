@@ -164,6 +164,9 @@ auto i64_of_str(StrRef str) -> Opt<i64> {
     return static_cast<i64>(is_negative ? -ret : ret);
 }
 
+auto i64_of_str_unchecked(StrRef num) -> i64 {
+    return i64_of_str().value();
+}
 
 }  // namespace
 
@@ -358,6 +361,17 @@ void fiska::Lexer::lex_hex_digit() {
 
     tok().kind_ = TK::Num;
     tok().str_ = mod_->strings_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start - 1)});
+
+    // Report overflow.
+    if (not i64_of_str(tok().str_)) {
+        tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
+        Error err {
+            .kind_ = ErrKind::NumberOverflow,
+            .ctx_ = mod_->ctx_,
+            .loc_ = tok().loc_,
+            .data_ = { .overflowed_num_ = tok().str_ }
+        };
+    }
 }
 
 void fiska::Lexer::lex_digit() {
@@ -366,6 +380,17 @@ void fiska::Lexer::lex_digit() {
 
     tok().kind_ = TK::Num;
     tok().str_ = mod_->strings_.save(StrRef{num_start, u32(curr_ - num_start - 1)});
+
+    // Report overflow.
+    if (not i64_of_str(tok().str_)) {
+        tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
+        Error err {
+            .kind_ = ErrKind::NumberOverflow,
+            .ctx_ = mod_->ctx_,
+            .loc_ = tok().loc_,
+            .data_ = { .overflowed_num_ = tok().str_ }
+        };
+    }
 }
 
 void fiska::Lexer::lex_ident() {
@@ -494,77 +519,44 @@ auto fiska::Parser::try_parse_x86_operand() -> Opt<Type> {
 
 template <>
 auto fiska::Parser::try_parse_x86_operand<Reg>() -> Opt<Reg> {
-    const Tok& bit_width = peek_tok();
-    const Tok& reg = peek_tok(1);
-
-    if (not (bit_width.kind_ == TK::BitWidth and reg.kind_ == TK::Reg)) {
-        return std::nullopt;
-    }
+    // Not a |Reg| operand.
+    if (not match_next_toks(TK::BitWidth, TK::Reg)) { return std::nullopt; }
 
     expect(TK::BitWidth, TK::Reg);
 
     return Reg {
-        .bit_width_ = utils::strmap_get(bit_widths, bit_width.str_),
-        .id_ = utils::strmap_get(x86_registers, reg.str_)
+        .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
+        .id_ = utils::strmap_get(x86_registers, prev().str_)
     };
 }
 
 template <>
 auto fiska::Parser::try_parse_x86_operand<Imm>() -> Opt<Imm> {
-    const Tok& bit_width = peek_tok();
-    const Tok& imm = peek_tok(1);
-
-    if (not (bit_width.kind_ == TK::BitWidth and imm.kind_ == TK::Num)) {
-        return std::nullopt;
-    }
+    // Not an |Imm| operand.
+    if (not match_next_toks(TK::BitWidth, TK::Num)) { return std::nullopt; }
 
     expect(TK::BitWidth, TK::Num);
 
-    Opt<i64> num = i64_of_str(prev().str_);
-
-    if (not num) {
-        // Report overflow.
-        Error err {
-            .kind_ = ErrKind::NumberOverflow,
-            .ctx_ = mod_->ctx_,
-            .loc_ = prev().loc_,
-            .data_ = { .overflowed_num_ = prev().str_ }
-        };
-        report_error(err, "Immediate does not fit in 64-bits.");
-    }
     return Imm {
-        .bit_width_ = utils::strmap_get(bit_widths, bit_width.str_),
-        .inner_ = num.value()
+        .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
+        // SAFETY: This will never panic because we check for overflow when lexing the
+        // number.
+        .inner_ = i64_of_str_unchecked(prev().str_)
     };
 }
 
 template <>
 auto fiska::Parser::try_parse_x86_operand<Moffs>() -> Opt<Moffs> {
-    const Tok& at = peek_tok();
-    const Tok& bit_width = peek_tok(1);
-    const Tok& addr = peek_tok(2);
-
-    if (not (at.kind_ == TK::At and bit_width.kind_ == TK::BitWidth and addr.kind_ == TK::Num)) {
-        return std::nullopt;
-    }
-
+    // Not a |Moffs| operand.
+    if (not match_next_toks(TK::At, TK::BitWidth, TK::Num)) { return std::nullopt; }
+    
     expect(TK::At, TK::BitWidth, TK::Num);
 
-    Opt<i64> offset = i64_of_str(prev().str_);
-    if (not offset) {
-        // Report overflow.
-        Error err {
-            .kind_ = ErrKind::NumberOverflow,
-            .ctx_ = mod_->ctx_,
-            .loc_ = prev().loc_,
-            .data_ = { .overflowed_num_ = prev().str_ }
-        };
-        report_error(err, "Memory offset does not fit in 64-bits.");
-    }
-
-    return Moffs {
-        .bit_width_ = utils::strmap_get(bit_widths, bit_width.str_),
-        .inner_ = offset.value()
+    return Moffs { 
+        .bit_width_ = utils::strmap_get(bit_widhts, prev(1).str_),
+        // SAFETY: This will never panic because we check for overflow when lexing the 
+        // number.
+        .inner_ = i64_of_str_unchecked(prev().str_)
     };
 }
 
@@ -596,12 +588,15 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
     // Has scale and index
     if (match_next_toks(TK::LBracket, TK::Num, TK::RBracket)) {
         expect(TK::LBracket, TK::Num, TK::RBracket, TK::LBracket, TK::Reg, TK::RBracket);
-        scale = i64_of_str(prev(4).str_);
+        scale = i64_of_str_unchecked(prev(4).str_);
         index_reg = Reg {
             // All registers used to address memory in 64-bit mode are 64-bit wide.
             .bit_width_ = BW::B64,
             .id_ = utils::strmap_get(x86_registers, prev(1).str_)
         };
+
+        if (not is_valid_mem_index_scale(scale)) {
+        }
         todo("Handle invalid scale, either too big to fit in 64-bits or not supported by the hardware");
     }
 
