@@ -167,12 +167,15 @@ struct Mem {
         Eight = 8
     };
 
-    MK kind_{};
     BW bit_width_{};
     Opt<Reg> base_reg_{std::nullopt};
     Opt<Reg> index_reg_{std::nullopt};
     Opt<i64> disp_{std::nullopt};
     Opt<Scale> scale_{std::nullopt};
+
+    [[nodiscard]] auto kind() -> MK {
+        todo();
+    }
 };
 
 struct Moffs {
@@ -431,20 +434,33 @@ struct Parser {
     }
 
     void expect(std::same_as<TK> auto... tok_kind) {
+        if ((consume(tok_kind) and ...)) { return; }
+        expect_error_handler(tok_kind...):
+    }
+    void expect_either(std::same_as<TK> auto... tok_kind) {
+        if ((consume(tok_kind) or ...)) { return; }
+        expect_error_handler(tok_kind...):
+    }
+
+    [[noreturn]] void expect_error_handler(std::same_as<TK> auto... tok_kind) {
+        std::string tokens_spelling{};
         auto helper = [&](TK tok_kind) {
-            if (consume(tok_kind)) { return; }
-            Error err {
-                .kind_ = ErrKind::UnexpectedTok,
-                .ctx_ = mod_->ctx_,
-                .loc_ = tok().loc_,
-                .data_ = { .tok_kind_ = tok().kind_ }
-            };
-            report_error(err,
-                    "was expecting the token '{}' but found '{}' instead.",
-                    Tok::spelling(tok_kind), Tok::spelling(err.data_.tok_kind_));
-        };
-        
+            tokens_spelling += fmt::format("{}, ", Tok::spelling(tok_kind));
+        }();
         (helper(tok_kind), ...);
+
+        // Remove the last " ," suffix from the list of token spellings.
+        tokens_spelling.pop_back();
+        tokens_spelling.pop_back();
+
+        Erorr err {
+            .kind_ = ErrKind::UnexpectedTok,
+            .ctx_ = mod_->ctx_,
+            .loc_ = tok().loc_,
+            .data_ = { .tok_kind = tok().kind_ }
+        };
+        report_error(err, "was expecting the following tokens '{}' but found '{}' instead.",
+                fmt::format("[{}]", token_spelling), err.data_.tok_kind_);
     }
 
     auto parse_proc_expr() -> ProcExpr*;

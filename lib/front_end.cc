@@ -570,62 +570,61 @@ auto fiska::Parser::try_parse_x86_operand<Moffs>() -> Opt<Moffs> {
 
 template <>
 auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
-    // Syntax of a displacement only memory reference.
-    // @b64 [] + 0x112233
-    //
-    // TODO: The grammar should be rewritten using something like BNF. 
-    // It's much clearer than simply giving examples or instances of that grammar.
-    bool is_disp_only_mem_ref = match_next_toks(
-        TK::At,
-        TK::BitWidth,
-        TK::LBracket,
-        TK::RBracket,
-        TK::Plus,
-        TK::Num
-    );
+    // Not a memory reference.
+    if (not match_next_toks(TK::At, TK::BitWidth, TK::LBracket)) { return std::nullopt; }
 
-    if (is_disp_only_mem_ref) {
-        expect(TK::At, TK::BitWidth, TK::LBracket, TK::RBracket, TK::Plus, TK::Num);
-        Opt<i64> disp = i64_of_str(prev().str_);
+    expect(TK::At, TK::BitWidth);
 
-        if (not disp or not utils::fits_in_b32(disp.value())) {
-            // Disp is too big to fit in 64-bits or is too big to fit in
-            // 32-bits. Both of those cases are error and must be reported
-            // correctly.
-            todo("report error here");
-        }
-
-        return Mem {
-            .kind_ = MK::DispOnly,
-            .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
-            .disp_ = disp.value() 
-        };
-    }
-
+    StrRef bit_width = prev().str_;
     Opt<Reg> base_reg{std::nullopt};
     Opt<Reg> index_reg{std::nullopt};
     Opt<Mem::Scale> scale{std::nullopt};
     Opt<i64> mem_disp{std::nullopt};
 
-    bool has_base_reg = match_next_toks(
-        TK::At,
-        TK::BitWidth,
-        TK::LBracket,
-        TK::Reg,
-        TK::RBracket
-    );
-    
-    if (has_base_reg) {
-        expect(TK::At, TK::BitWidth, TK::LBracket, TK::Reg, TK::RBracket);
-        base_reg.emplace(Reg {
-                .bit_width_ = utils::strmap_get(bit_widths, prev(3).str_),
-                .id_ = utils::strmap_get(x86_registers, prev(1).str_)
-            }
-        );
+    expect(TK::LBracket);
+    if (match_next_toks(TK::Reg)) {
+        expect(TK::Reg);
+        base_reg = Reg {
+            // All registers used to address memory in 64-bit mode are 64-bit wide.
+            .bit_width_ = BW::B64,
+            .id_ = utils::strmap_get(x86_registers, prev().str_)
+        };
+        mem_ref_kind = MK::BaseDisp;
+    }
+    expect(TK::RBracket);
+
+    // Has scale and index
+    if (match_next_toks(TK::LBracket, TK::Num, TK::RBracket)) {
+        expect(TK::LBracket, TK::Num, TK::RBracket, TK::LBracket, TK::Reg, TK::RBracket);
+        scale = i64_of_str(prev(4).str_);
+        index_reg = Reg {
+            // All registers used to address memory in 64-bit mode are 64-bit wide.
+            .bit_width_ = BW::B64,
+            .id_ = utils::strmap_get(x86_registers, prev(1).str_)
+        };
+        todo("Handle invalid scale, either too big to fit in 64-bits or not supported by the hardware");
     }
 
-    // Not a Mem operand.
-    return std::nullopt;
+    // Has displacement
+    if (at(TK::Plus, TK::Minus) and peek_tok(1).kind_ == TK::Num) {
+        expect_either(TK::Plus, TK::Minus); expect(TK::Num);
+        mem_disp = i64_of_str(StrRef{prev(1).str_.data(), prev(1).str_.size() + prev().str_.size()});
+        todo("Handle invalid mem_disp, either too big to fit in 64 bits or it's not a valid 32-bit displacement "
+                "allowed by the hardware.");
+    }
+
+    // Ill formed memory reference encountered.
+    if (not (base_reg or index_reg or mem_disp)) {
+        todo("report_error('Ill-formed memory reference encountered while parsing the operand)");
+    }
+
+    return Mem {
+        .kind_ = mem_ref_kind.value(),
+        .bit_width_ = bit_width,
+        .base_reg_ = base_reg,
+        .index_reg_ = index_reg,
+        disp_ = mem_disp
+    };
 }
 
 auto fiska::Parser::parse_x86_operand() -> X86Op {
