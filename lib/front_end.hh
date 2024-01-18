@@ -11,6 +11,10 @@ namespace fiska {
 
 struct Module;
 
+enum struct X86IK {
+    Mov,
+};
+
 enum struct BW : u16 {
     B8 = 8,
     B16 = 16,
@@ -18,6 +22,8 @@ enum struct BW : u16 {
     B64 = 64
 };
 
+// Register Ids.
+// Never change the declaration order or the values of this enumeration.
 enum struct RI {
     Rax = 0,  Es = 16, Cr0 = 24,  Dbg0 = 40, 
     Rcx = 1,  Cs = 17, Cr1 = 25,  Dbg1 = 41, 
@@ -36,6 +42,17 @@ enum struct RI {
     R13 = 13,          Cr13 = 37, Dbg13 = 53,
     R14 = 14,          Cr14 = 38, Dbg14 = 54,
     R15 = 15,          Cr15 = 39, Dbg15 = 55,
+};
+
+enum struct RK {
+    Gp, Seg, Ctrl, Dbg
+};
+
+enum struct MK {
+    BaseDisp,
+    BaseIndexDisp,
+    IndexDisp,
+    DispOnly
 };
 
 enum struct TK {
@@ -82,24 +99,18 @@ enum struct TK {
     Eof,
 };
 
+enum struct ExprKind {
+    ProcExpr,
+};
+
 // Error kind.
 // This enum will decide what short message will be shown to the user when 
 // encountering an error during compilation.
-enum struct EK {
+enum struct ErrKind {
     UnrecognizedChar,
     UnexpectedChar,
     UnexpectedTok,
-};
-
-struct Error {
-    EK kind_{};
-    Context* ctx_{};
-    u16 fid_{};
-    Location loc_{};
-    union {
-        char c_{};
-        TK tok_kind_{};
-    } data_;
+    NumberOverflow,
 };
 
 struct Tok {
@@ -110,12 +121,116 @@ struct Tok {
     static auto spelling(TK kind) -> StrRef;
 };
 
-struct X86Instruction {
+struct Error {
+    ErrKind kind_{};
+    Context* ctx_{};
+    Location loc_{};
+    union {
+        char c_;
+        TK tok_kind_;
+        StrRef overflowed_num_;
+    } data_{};
 };
 
+struct Reg {
+    BW bit_width_{};
+    RI id_{};
 
-enum struct ExprKind {
-    ProcExpr,
+    auto index() -> u8 { return +id_ & 0x7; }
+    auto requires_extension() -> bool {
+        return (+id_ >= +RI::R8 and +id_ <= +RI::R15)
+            or (+id_ >= +RI::Cr8 and +id_ <= +RI::Cr15)
+            or (+id_ >= +RI::Dbg8 and +id_ <= +RI::Dbg15);
+    }
+    auto kind() -> RK {
+        if (+id_ >= +RI::Rax and +id_ <= +RI::R15) { return RK::Gp; }
+        if (+id_ >= +RI::Es and +id_ <= +RI::Gs) { return RK::Seg; }
+        if (+id_ >= +RI::Cr0 and +id_ <= +RI::Cr15) { return RK::Ctrl; }
+        if (+id_ >= +RI::Dbg0 and +id_ <= +RI::Dbg15) { return RK::Dbg; }
+        unreachable("Unknown register id (RI) encountered.");
+    }
+};
+
+struct Mem {
+    static constexpr u8 kmod_mem = 0b00;
+    static constexpr u8 kmod_mem_disp8 = 0b01;
+    static constexpr u8 kmod_mem_disp32 = 0b10;
+    static constexpr u8 kmod_reg = 0b11;
+    static constexpr u8 ksib_marker = 0b100;
+    static constexpr u8 ksib_no_index_reg = 0b100;
+    static constexpr u8 ksib_no_base_reg = 0b101;
+
+    enum struct Scale : i8 {
+        One = 0,
+        Two = 1,
+        Four = 2,
+        Eight = 8
+    };
+
+    MK kind_{};
+    BW bit_width_{};
+    Opt<Reg> base_reg_{std::nullopt};
+    Opt<Reg> index_reg_{std::nullopt};
+    Opt<i64> disp_{std::nullopt};
+    Opt<Scale> scale_{std::nullopt};
+};
+
+struct Moffs {
+    BW bit_width_{};
+    i64 inner_{};
+
+    auto as_i64() -> i64 { return inner_; }
+};
+
+struct Imm {
+    BW bit_width_{};
+    i64 inner_{};
+
+    template <OneOf<i8, i16, i32, i64> Size>
+    auto as() -> Size { return static_cast<Size>(inner_); }
+};
+
+struct X86Op {
+    using Inner = std::variant<
+        std::monostate,
+        Reg,
+        Mem,
+        Moffs,
+        Imm
+    >;
+    Inner inner_{};
+
+    X86Op(Inner op) : inner_(op) {}
+
+    template <typename... Ts>
+    constexpr bool is() const { return (std::holds_alternative<Ts>(inner_) or ...); }
+
+    template <typename T>
+    auto as() -> T& { return std::get<T>(inner_); }
+
+    template <typename T>
+    auto as() const -> const T& { return std::get<T>(inner_); }
+};
+
+template <typename T>
+concept IsX86Op = std::same_as<T, Reg> or std::same_as<T, Imm>
+               or std::same_as<T, Mem> or std::same_as<T, Moffs>;
+
+// All |X86Instruction|s and all its derived structs are owned
+// by the procedure containing them.
+struct X86Instruction {
+    X86IK kind_{};
+
+    X86Instruction(X86IK kind) : kind_(kind) {}
+    virtual ~X86Instruction() = default;
+};
+
+struct Mov : public X86Instruction {
+    X86Op dst_;
+    X86Op src_;
+
+    Mov(X86Op dst, X86Op src) 
+        : X86Instruction(X86IK::Mov), dst_(dst), src_(src) {}
 };
 
 struct Expr {
@@ -195,73 +310,6 @@ struct Lexer {
         next_tok();
     }
 
-    template <typename... Args>
-    [[noreturn]] auto error(EK ek, fmt::format_string<Args...> fmt, Args&&... args) -> void {
-        using enum fmt::color;
-        using enum fmt::emphasis;
-
-        LineColInfo info = tok().loc_.line_col_info(mod_->ctx_);
-        File* file = mod_->ctx_->get_file(fid_);
-        auto print_ptr_range = [](
-                const char* beg,
-                const char* end,
-                Opt<char> c = std::nullopt,
-                Opt<fmt::text_style> style = std::nullopt)
-        {
-            const fmt::text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
-            for (const char* ptr = beg; ptr != end; ++ptr) {
-                fmt::print(ts, "{}", c.value_or(*ptr));
-            }
-        };
-        auto print_spaces = [](u32 num) { while(num--) { fmt::print(" "); } };
-
-
-        // Print the file name, line number and column number of where the error happened.
-        fmt::print(bold | underline | fg(medium_slate_blue),
-                "\u2192 {}:{}:{}", file->path_.string() , info.line_, info.col_);
-
-        // Print the error kind and the error message to the user.
-        fmt::print(bold | fg(red), " Compile error: ");
-        // Print a short message summarizing the error.
-        switch (ek) {
-        case EK::UnexpectedChar: {
-            fmt::print(bold | fg(light_gray), "Unexpected character encountered: '{}'.", c_);
-            break;
-        }
-        case EK::UnrecognizedChar: {
-            fmt::print(bold | fg(light_gray), "Unrecognized character: '{}'.", c_);
-            break;
-        }
-        } // switch
-        fmt::print("\n");
-
-        // Print the line number and the vertical dash.
-        fmt::print("{} | ", info.line_);
-
-        // Print the line where the error occured and highlight the last char we 
-        // lexed when the error occured.
-        const char* pos_of_highlighted_char = file->data() + tok().loc_.pos_;
-
-        print_ptr_range(info.line_start_, pos_of_highlighted_char); 
-        fmt::print(fg(red) | bold, "{}", *pos_of_highlighted_char);
-        print_ptr_range(pos_of_highlighted_char + 1, info.line_end_);
-        fmt::print("\n");
-
-        // Print a '^' and a detailed error message below the highlighted char. 
-        // The highlighted char is defined as the last char we lexed when the error happened.
-        //
-        // Skip the line number and the vertical dash.
-        print_spaces(/*side_bar_size=*/utils::number_width(info.line_) + std::strlen(" | "));
-
-        print_ptr_range(info.line_start_, pos_of_highlighted_char, ' ');
-        fmt::print(fg(red) | bold, "^ ");
-        fmt::print(fg(medium_slate_blue) | bold, fmt::format(fmt, std::forward<Args>(args)...));
-        print_ptr_range(pos_of_highlighted_char + 1, info.line_end_, ' ');
-        fmt::print("\n");
-
-        std::exit(1);
-    }
-
     auto eof() -> bool { return curr_ >= end_; }
     auto tok() -> Tok&;
     auto peek_c() -> char;
@@ -278,11 +326,7 @@ struct Lexer {
 
 template <typename... Args>
 [[noreturn]] auto report_error(
-    const Error& err,
-    EK ek,
-    Context* ctx,
-    u16 fid,
-    const Tok& tok,
+    Error err,
     fmt::format_string<Args...> fmt,
     Args&&... args
 ) -> void
@@ -290,40 +334,52 @@ template <typename... Args>
     using enum fmt::color;
     using enum fmt::emphasis;
 
-    LineColInfo info = tok.loc_.line_col_info(mod_->ctx_);
-    File* file = err.ctx_->get_file(err.fid_)
+    LineColInfo info = err.loc_.line_col_info(err.ctx_);
+    File* file = err.ctx_->get_file(err.loc_.fid_);
+
+    auto print_repeated = [](
+            char c,
+            u32 times,
+            Opt<fmt::text_style> style = std::nullopt
+            ) 
+    { 
+        fmt::text_style text_style = style.value_or(static_cast<fmt::emphasis>(0));
+        while (times--) { fmt::print(text_style, "{}", c); } 
+    };
     auto print_ptr_range = [](
             const char* beg,
             const char* end,
             Opt<char> c = std::nullopt,
             Opt<fmt::text_style> style = std::nullopt)
     {
-        const fmt::text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
+        fmt::text_style text_style = style.value_or(static_cast<fmt::emphasis>(0));
         for (const char* ptr = beg; ptr != end; ++ptr) {
-            fmt::print(ts, "{}", c.value_or(*ptr));
+            fmt::print(text_style, "{}", c.value_or(*ptr));
         }
     };
-    auto print_spaces = [](u32 num) { while(num--) { fmt::print(" "); } };
 
 
     // Print the file name, line number and column number of where the error happened.
     fmt::print(bold | underline | fg(medium_slate_blue),
             "\u2192 {}:{}:{}", file->path_.string() , info.line_, info.col_);
 
-    // Print the error kind and the error message to the user.
+    // Print a short summary of what the error is.
     fmt::print(bold | fg(red), " Compile error: ");
-    // Print a short message summarizing the error.
-    switch (ek) {
-    case EK::UnexpectedChar: {
-        fmt::print(bold | fg(light_gray), "Unexpected character encountered: '{}'.", c_);
+    switch (err.kind_) {
+    case ErrKind::UnexpectedChar: {
+        fmt::print(bold | fg(light_gray), "Unexpected character encountered: '{}'.", err.data_.c_);
         break;
     }
-    case EK::UnrecognizedChar: {
-        fmt::print(bold | fg(light_gray), "Unrecognized character: '{}'.", c_);
+    case ErrKind::UnrecognizedChar: {
+        fmt::print(bold | fg(light_gray), "Unrecognized character encountered: '{}'.", err.data_.c_);
         break;
     }
-    case EK::UnexpectedTok: {
-        fmt::print(bold | fg(light_gray), "Unexpected token encountered: '{}'.", Tok::spelling(tok.kind_));
+    case ErrKind::UnexpectedTok: {
+        fmt::print(bold | fg(light_gray), "Unexpected token encountered: '{}'.", Tok::spelling(err.data_.tok_kind_));
+        break;
+    }
+    case ErrKind::NumberOverflow: {
+        fmt::print(bold | fg(light_gray), "Number overflow when converting number: '{}'.", err.data_.overflowed_num_);
         break;
     }
     } // switch
@@ -332,25 +388,25 @@ template <typename... Args>
     // Print the line number and the vertical dash.
     fmt::print("{} | ", info.line_);
 
-    // Print the line where the error occured and highlight the last char we 
-    // lexed when the error occured.
-    const char* pos_of_highlighted_char = file->data() + tok().loc_.pos_;
+    // Print the line where the error occured and highlight the problematic range.
+    const char* error_pos = file->data() + err.loc_.pos_;
+    StrRef problematic_range = StrRef{error_pos, err.loc_.len_};
 
-    print_ptr_range(info.line_start_, pos_of_highlighted_char); 
-    fmt::print(fg(red) | bold, "{}", *pos_of_highlighted_char);
-    print_ptr_range(pos_of_highlighted_char + 1, info.line_end_);
+    print_ptr_range(info.line_start_, error_pos); 
+    fmt::print(fg(red) | bold, "{}", problematic_range);
+    print_ptr_range(error_pos + err.loc_.len_, info.line_end_);
     fmt::print("\n");
 
     // Print a '^' and a detailed error message below the highlighted char. 
     // The highlighted char is defined as the last char we lexed when the error happened.
     //
     // Skip the line number and the vertical dash.
-    print_spaces(/*side_bar_size=*/utils::number_width(info.line_) + std::strlen(" | "));
+    print_repeated(' ',/*side_bar_size=*/utils::number_width(info.line_) + std::strlen(" | "));
 
-    print_ptr_range(info.line_start_, pos_of_highlighted_char, ' ');
-    fmt::print(fg(red) | bold, "^ ");
-    fmt::print(fg(medium_slate_blue) | bold, fmt::format(fmt, std::forward<Args>(args)...));
-    print_ptr_range(pos_of_highlighted_char + 1, info.line_end_, ' ');
+    print_ptr_range(info.line_start_, error_pos, ' ');
+    assert(err.loc_.len_ >= 1, "Unsigned integer overflow detected.");
+    fmt::print(fg(red) | bold, "^"); print_repeated('~', err.loc_.len_ - 1, bold | fg(red));
+    fmt::print(fg(medium_slate_blue) | bold, " {}", fmt::format(fmt, std::forward<Args>(args)...));
     fmt::print("\n");
 
     std::exit(1);
@@ -364,50 +420,6 @@ struct Parser {
     explicit Parser(File* file, Module* mod) 
         : mod_(mod), fid_(file->fid_), curr_tok_it_(mod->tokens_.begin()) {}
 
-    template <typename... Args>
-    [[noreturn]] auto error(EK ek, fmt::format_string<Args...> fmt, Args&&... args) -> void {
-        using enum fmt::color;
-        using enum fmt::emphasis;
-
-        LineColInfo info = tok().loc_.line_col_info(mod_->ctx_);
-        File* file = mod_->ctx_->get_file(fid_);
-        auto print_ptr_range = [](
-                const char* beg,
-                const char* end,
-                Opt<char> c = std::nullopt,
-                Opt<fmt::text_style> style = std::nullopt)
-        {
-            const fmt::text_style& ts = style.value_or(static_cast<fmt::emphasis>(0));
-            for (const char* ptr = beg; ptr != end; ++ptr) {
-                fmt::print(ts, "{}", c.value_or(*ptr));
-            }
-        };
-        auto print_spaces = [](u32 num) { while(num--) { fmt::print(" "); } };
-
-        // Print the file name, line number and column number of where the error happened.
-        fmt::print(bold | underline | fg(medium_slate_blue),
-                "\u2192 {}:{}:{}", file->path_.string() , info.line_, info.col_);
-
-        // Print a short message summarizing the error.
-        switch (ek) {
-        case EK::UnexpectedChar: {
-            fmt::print(bold | fg(light_gray), "Unexpected character encountered: '{}'.", c_);
-            break;
-        }
-        case EK::UnrecognizedChar: {
-            fmt::print(bold | fg(light_gray), "Unrecognized character: '{}'.", c_);
-            break;
-        }
-        case EK::UnexpectedTok: {
-            fmt::print(bold | fg(light_gray), "Unexpected token encountered: '{}'.", Tok::spelling(tok().kind_));
-            break;
-        }
-        } // switch
-        fmt::print("\n");
-
-        todo();
-    }
-
     auto at(std::same_as<TK> auto... tok_tys) -> bool {
         return ((tok().kind_ == tok_tys) or ...);
     }
@@ -418,16 +430,42 @@ struct Parser {
         return true;
     }
 
-    void expect(TK tok_kind) {
-        if (consume(tok_kind)) { return; }
-        error(EK::UnexpectedTok
-                , "was expecting the token '{}' but found '{}' instead.",
-                Tok::spelling(tok_kind), Tok::spelling(tok().kind_));
+    void expect(std::same_as<TK> auto... tok_kind) {
+        auto helper = [&](TK tok_kind) {
+            if (consume(tok_kind)) { return; }
+            Error err {
+                .kind_ = ErrKind::UnexpectedTok,
+                .ctx_ = mod_->ctx_,
+                .loc_ = tok().loc_,
+                .data_ = { .tok_kind_ = tok().kind_ }
+            };
+            report_error(err,
+                    "was expecting the token '{}' but found '{}' instead.",
+                    Tok::spelling(tok_kind), Tok::spelling(err.data_.tok_kind_));
+        };
+        
+        (helper(tok_kind), ...);
     }
 
     auto parse_proc_expr() -> ProcExpr*;
     auto parse_x86_instruction() -> X86Instruction*;
+    auto parse_x86_operand() -> X86Op;
+
+    template <OneOf<Reg, Imm, Mem, Moffs> Type>
+    auto try_parse_x86_operand() -> Opt<Type>;
+
+    auto match_next_toks(std::same_as<TK> auto... tok_tys) -> bool {
+        u32 lookbehind = 0;
+        auto match_tok = [&](TK tok_kind) {
+            return peek_tok(lookbehind++).kind_ == tok_kind;
+        };
+        
+        return (match_tok(tok_tys) and ...);
+    }
+
     auto tok() -> const Tok&;
+    auto prev(u32 lookbehind = 0) -> const Tok&;
+    auto peek_tok(u32 lookahead = 0) -> const Tok&;
     void next_tok();
     static void parse_file_into_module(File* file, Module* mod);
 };

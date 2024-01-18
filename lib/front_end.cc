@@ -6,8 +6,7 @@
 
 namespace {
 
-using TK = fiska::TK;
-using RI = fiska::RI;
+using namespace fiska;
 
 // Below are the characters considered to be whitespace.
 // \n: New line.
@@ -47,6 +46,10 @@ void skip_white_space(fiska::Lexer& lxr) {
     }
 }
 
+const utils::StringMap<BW> bit_widths = {
+    {"b8", BW::B8}, {"b16", BW::B16}, {"b32", BW::B32}, {"b64", BW::B64},
+};
+
 const utils::StringMap<TK> keywords = {
     {"fn", TK::Fn},
 
@@ -71,7 +74,7 @@ const utils::StringMap<TK> keywords = {
     {"mov", TK::Mnemonic}
 };
 
-const utils::StringMap<RI> registers = {
+const utils::StringMap<RI> x86_registers = {
     {"rax", RI::Rax}, {"rcx", RI::Rcx}, {"rdx", RI::Rdx}, {"rbx", RI::Rbx}, {"rsp", RI::Rsp}, {"rbp", RI::Rbp},
     {"rsi", RI::Rsi}, {"rdi", RI::Rdi}, {"rip", RI::Rip}, {"r8", RI::R8}, {"r9", RI::R9}, {"r10", RI::R10},
     {"r11", RI::R11}, {"r12", RI::R12}, {"r13", RI::R13}, {"r14", RI::R14}, {"r15", RI::R15},
@@ -88,6 +91,79 @@ const utils::StringMap<RI> registers = {
     {"dbg10", RI::Dbg10}, {"dbg11", RI::Dbg11}, {"dbg12", RI::Dbg12}, {"dbg13", RI::Dbg13}, {"dbg14", RI::Dbg14},
     {"dbg15", RI::Dbg15},
 };
+
+const utils::StringMap<X86IK> x86_instruction_kinds = {
+    {"mov", X86IK::Mov}
+};
+
+template <IsX86Op T, IsX86Op U>
+auto operator>>=(const Opt<T>& me, const Opt<U>& you) -> Opt<X86Op> {
+    if (me) { return X86Op(me.value()); }
+    return you ? X86Op(you.value()) : Opt<X86Op>{std::nullopt};
+}
+
+template <IsX86Op T>
+auto operator>>=(const Opt<T>& me, const Opt<X86Op>& you) -> Opt<X86Op> {
+    if (me) { return X86Op(me.value()); }
+    return you;
+}
+
+// Credit to llvm: https://llvm.org/doxygen/StringRef_8cpp_source.html
+// Returns |std::nullopt| if an overflow occurs.
+auto i64_of_str(StrRef str) -> Opt<i64> {
+    bool is_negative = str.starts_with('-');
+
+    if (str.starts_with('+') or str.starts_with('-')) {
+        str.remove_prefix(1);
+    }
+
+    u8 radix = str.starts_with("0x") ? 16 : 10;
+    if (str.starts_with("0x")) { str.remove_prefix(2); }
+
+    StrRef curr_str = str;
+    u64 ret = 0;
+
+    while (not curr_str.empty()) {
+        u8 ord = 0;
+
+        if (curr_str[0] >= '0' and curr_str[0] <= '9') {
+            ord = u8(curr_str[0] - '0');
+        } else if (curr_str[0] >= 'a' and curr_str[0] <= 'z') {
+            ord = u8(curr_str[0] - 'a' + 10);
+        } else if (curr_str[0] >= 'A' and curr_str[0] <= 'Z') {
+            ord = u8(curr_str[0] - 'A' + 10);
+        } else {
+            // Not going to happen because during the lexing of a number, we immediately stop
+            // when we encounter a character that does not constitute a valid digit in the base used.
+            unreachable();
+        }
+
+        // Not going to happen because during the lexing of a number, we immediately stop
+        // when we encounter a character that does not constitute a valid digit in the base used.
+        if (ord >= radix) {
+            unreachable();
+        }
+
+        u64 old_ret = ret;
+        ret = ret * radix + ord;
+
+        // overflow detected.
+        if ((ret / radix) < old_ret) {
+            return std::nullopt;
+        }
+
+        curr_str.remove_prefix(1);
+    }
+
+    // check if negative number is not too large to 
+    // fit in an i64.
+    if (is_negative and static_cast<i64>(-ret) > 0) {
+        return std::nullopt;
+    }
+
+    return static_cast<i64>(is_negative ? -ret : ret);
+}
+
 
 }  // namespace
 
@@ -193,7 +269,14 @@ void fiska::Lexer::next_tok_helper() {
         // Eat the first '/'
         next_c();
         if (c_ != '/') {
-            error(EK::UnexpectedChar, "Expected a line comment after '/', but found '{}'.", c_);
+            tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
+            Error err {
+                .kind_ = ErrKind::UnexpectedChar,
+                .ctx_ = mod_->ctx_,
+                .loc_ = tok().loc_,
+                .data_ = { .c_ =  c_ }
+            };
+            report_error(err,  "Expected a line comment after '/', but found '{}'.", c_);
         }
         // Eat the second '/'
         next_c();
@@ -206,7 +289,15 @@ void fiska::Lexer::next_tok_helper() {
             // Eat the '0' and then error out. This is to make sure the error message displays
             // the correct unexpected char which is 'cc' and not '0'.
             next_c();
-            error(EK::UnexpectedChar, "Leading zeros are not allowed in a decimal number. "
+
+            tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
+            Error err {
+                .kind_ = ErrKind::UnexpectedChar,
+                .ctx_ = mod_->ctx_,
+                .loc_ = tok().loc_,
+                .data_ = { .c_ = c_ }
+            };
+            report_error(err,  "Leading zeros are not allowed in a decimal number. "
                     "Hex numbers must be preceded with a '0x' prefix.");
         }
         // Encountered a '0x' prefix.
@@ -238,7 +329,17 @@ void fiska::Lexer::next_tok_helper() {
             lex_ident();
             break;
         }
-        error(EK::UnrecognizedChar, "Expected thet start of an identifier but found '{}' instead.", c_);
+        // Eat the unrecognized char in order to show the right error message to the user.
+        next_c();
+
+        tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
+        Error err {
+            .kind_ = ErrKind::UnrecognizedChar, 
+            .ctx_ = mod_->ctx_,
+            .loc_ = tok().loc_,
+            .data_ = { .c_ = c_ }
+        };
+        report_error(err, "Expected thet start of an identifier but found '{}' instead.", c_);
     }
     }  // switch
     tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
@@ -329,15 +430,30 @@ auto fiska::Parser::tok() -> const Tok& {
     return *curr_tok_it_;
 }
 
+auto fiska::Parser::prev(u32 lookbehind) -> const Tok& {
+    assert(curr_tok_it_ - mod_->tokens_.begin() >= 1 + lookbehind,
+            "Attempting to access the previously consumed token when no tokens were consumed.");
+    return *(curr_tok_it_ - 1 - lookbehind);
+}
+
+auto fiska::Parser::peek_tok(u32 lookahead) -> const Tok& {
+    if (curr_tok_it_ + lookahead >= mod_->tokens_.end()) {
+        // Return the TK::Eof token.
+        return mod_->tokens_.storage_.back();
+    }
+    return *(curr_tok_it_ + lookahead);
+}
+
 void fiska::Parser::next_tok() {
+    // Keep returning TK::Eof when we are out of tokens.
     if (tok().kind_ == TK::Eof) { return; }
     curr_tok_it_++;
 }
 
 auto fiska::Parser::parse_proc_expr() -> ProcExpr* {
-    expect(TK::Fn);
-    StrRef func_name = tok().str_;
-    expect(TK::Ident);
+    expect(TK::Fn, TK::Ident);
+    StrRef func_name = prev().str_;
+
     expect(TK::LBrace);
 
     Vec<Box<X86Instruction>> instructions;
@@ -350,8 +466,181 @@ auto fiska::Parser::parse_proc_expr() -> ProcExpr* {
 }
 
 auto fiska::Parser::parse_x86_instruction() -> X86Instruction* {
+    expect(TK::Mnemonic);
+    X86IK instruction_kind = strmap_get(x86_instruction_kinds, prev().str_);
+    expect(TK::LParen);
+
+    switch (instruction_kind) {
+    case X86IK::Mov: {
+        X86Op dst = parse_x86_operand();
+        expect(TK::Comma);
+        X86Op src = parse_x86_operand();
+        expect(TK::RParen);
+
+        return new (mod_) Mov(dst, src);
+    }
+    } // switch
+
+
     todo("to be implemented");
 }
+
+template <OneOf<Reg, Imm, Mem, Moffs> Type>
+auto fiska::Parser::try_parse_x86_operand() -> Opt<Type> {
+    static_assert(false and "The parser is not implemented yet for the type");
+    unreachable();
+}
+
+
+template <>
+auto fiska::Parser::try_parse_x86_operand<Reg>() -> Opt<Reg> {
+    const Tok& bit_width = peek_tok();
+    const Tok& reg = peek_tok(1);
+
+    if (not (bit_width.kind_ == TK::BitWidth and reg.kind_ == TK::Reg)) {
+        return std::nullopt;
+    }
+
+    expect(TK::BitWidth, TK::Reg);
+
+    return Reg {
+        .bit_width_ = utils::strmap_get(bit_widths, bit_width.str_),
+        .id_ = utils::strmap_get(x86_registers, reg.str_)
+    };
+}
+
+template <>
+auto fiska::Parser::try_parse_x86_operand<Imm>() -> Opt<Imm> {
+    const Tok& bit_width = peek_tok();
+    const Tok& imm = peek_tok(1);
+
+    if (not (bit_width.kind_ == TK::BitWidth and imm.kind_ == TK::Num)) {
+        return std::nullopt;
+    }
+
+    expect(TK::BitWidth, TK::Num);
+
+    Opt<i64> num = i64_of_str(prev().str_);
+
+    if (not num) {
+        // Report overflow.
+        Error err {
+            .kind_ = ErrKind::NumberOverflow,
+            .ctx_ = mod_->ctx_,
+            .loc_ = prev().loc_,
+            .data_ = { .overflowed_num_ = prev().str_ }
+        };
+        report_error(err, "Immediate does not fit in 64-bits.");
+    }
+    return Imm {
+        .bit_width_ = utils::strmap_get(bit_widths, bit_width.str_),
+        .inner_ = num.value()
+    };
+}
+
+template <>
+auto fiska::Parser::try_parse_x86_operand<Moffs>() -> Opt<Moffs> {
+    const Tok& at = peek_tok();
+    const Tok& bit_width = peek_tok(1);
+    const Tok& addr = peek_tok(2);
+
+    if (not (at.kind_ == TK::At and bit_width.kind_ == TK::BitWidth and addr.kind_ == TK::Num)) {
+        return std::nullopt;
+    }
+
+    expect(TK::At, TK::BitWidth, TK::Num);
+
+    Opt<i64> offset = i64_of_str(prev().str_);
+    if (not offset) {
+        // Report overflow.
+        Error err {
+            .kind_ = ErrKind::NumberOverflow,
+            .ctx_ = mod_->ctx_,
+            .loc_ = prev().loc_,
+            .data_ = { .overflowed_num_ = prev().str_ }
+        };
+        report_error(err, "Memory offset does not fit in 64-bits.");
+    }
+
+    return Moffs {
+        .bit_width_ = utils::strmap_get(bit_widths, bit_width.str_),
+        .inner_ = offset.value()
+    };
+}
+
+template <>
+auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
+    // Syntax of a displacement only memory reference.
+    // @b64 [] + 0x112233
+    //
+    // TODO: The grammar should be rewritten using something like BNF. 
+    // It's much clearer than simply giving examples or instances of that grammar.
+    bool is_disp_only_mem_ref = match_next_toks(
+        TK::At,
+        TK::BitWidth,
+        TK::LBracket,
+        TK::RBracket,
+        TK::Plus,
+        TK::Num
+    );
+
+    if (is_disp_only_mem_ref) {
+        expect(TK::At, TK::BitWidth, TK::LBracket, TK::RBracket, TK::Plus, TK::Num);
+        Opt<i64> disp = i64_of_str(prev().str_);
+
+        if (not disp or not utils::fits_in_b32(disp.value())) {
+            // Disp is too big to fit in 64-bits or is too big to fit in
+            // 32-bits. Both of those cases are error and must be reported
+            // correctly.
+            todo("report error here");
+        }
+
+        return Mem {
+            .kind_ = MK::DispOnly,
+            .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
+            .disp_ = disp.value() 
+        };
+    }
+
+    Opt<Reg> base_reg{std::nullopt};
+    Opt<Reg> index_reg{std::nullopt};
+    Opt<Mem::Scale> scale{std::nullopt};
+    Opt<i64> mem_disp{std::nullopt};
+
+    bool has_base_reg = match_next_toks(
+        TK::At,
+        TK::BitWidth,
+        TK::LBracket,
+        TK::Reg,
+        TK::RBracket
+    );
+    
+    if (has_base_reg) {
+        expect(TK::At, TK::BitWidth, TK::LBracket, TK::Reg, TK::RBracket);
+        base_reg.emplace(Reg {
+                .bit_width_ = utils::strmap_get(bit_widths, prev(3).str_),
+                .id_ = utils::strmap_get(x86_registers, prev(1).str_)
+            }
+        );
+    }
+
+    // Not a Mem operand.
+    return std::nullopt;
+}
+
+auto fiska::Parser::parse_x86_operand() -> X86Op {
+    Opt<X86Op> op = try_parse_x86_operand<Reg>()
+        >>= try_parse_x86_operand<Imm>()
+        >>= try_parse_x86_operand<Mem>()
+        >>= try_parse_x86_operand<Moffs>();
+
+    // What error should we report?
+    assert(op.has_value(),
+            "Parse error. TODO: report the error properly instead of asserting");
+
+    return op.value();
+}
+
 
 void fiska::Parser::parse_file_into_module(File* file, Module* mod) {
     Parser p{file, mod};

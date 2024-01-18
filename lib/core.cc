@@ -51,6 +51,10 @@ auto utils::fits_in_i8(i64 num) -> bool { return fits_in_signed<i8>(num); }
 auto utils::fits_in_i16(i64 num) -> bool { return fits_in_signed<i16>(num); }
 auto utils::fits_in_i32(i64 num) -> bool { return fits_in_signed<i32>(num); }
 
+auto utils::fits_in_b8(i64 num) -> bool { return fits_in_i8(num) or fits_in_u8(num); }
+auto utils::fits_in_b16(i64 num) -> bool { return fits_in_i16(num) or fits_in_u16(num); }
+auto utils::fits_in_b32(i64 num) -> bool { return fits_in_i32(num) or fits_in_u32(num); }
+
 auto utils::number_width(u64 num, u32 base) -> u32 {
     return num == 0 ? 1 : u32(std::log(num) / std::log(base) + 1);
 }
@@ -120,3 +124,4 @@ auto utils::load_file(const fs::path& path) -> Vec<char> {
 
     return content;
 }
+

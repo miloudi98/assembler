@@ -19,7 +19,7 @@
 #include <fmt/color.h>
 
 //=======================================================================================
-// Miscallaneous type and namespace aliases.
+// Miscallaneous types, namespace aliases and concepts.
 //=======================================================================================
 using i8 = int8_t;
 using i16 = int16_t;
@@ -50,103 +50,14 @@ template <typename T>
 using Opt = std::optional<T>;
 
 using ByteVec = Vec<u8>;
-
 using StrRef = std::string_view;
+
+template <typename T, typename... Us>
+concept OneOf = (std::same_as<T, Us> or ...);
 
 namespace fs = std::filesystem;
 namespace vws = std::views;
 namespace rgs = std::ranges;
-
-//=======================================================================================
-// Helper functions and types.
-//=======================================================================================
-template <typename E> 
-requires std::is_enum_v<E>
-constexpr auto operator+(E e) -> std::underlying_type_t<E> {
-    return std::to_underlying(e);
-}
-
-namespace utils {
-
-// StringMap utility type.
-//
-// This is basically an std::unordered_map<std::string, T> but with the 
-// additional property of heterogeneous lookups. Lookups can be made using
-// any type that is convertible to a string_view. One important thing to note
-// here is that the type with which the lookup is made must be comparable to 
-// a string. Something like std::span<const char> will not work!
-// A vanilla std::unordered_map doesn't allow this kind of behaviour by default.
-struct StringHash {
-    using is_transparent = void;
-
-    [[nodiscard]] auto operator()(std::string_view data) const { return std::hash<std::string_view>{}(data); }
-
-    [[nodiscard]] auto operator()(const std::string& data) const { return std::hash<std::string>{}(data); }
-
-    template <typename Ty>
-    requires requires(const Ty& ty) {
-        { ty.size() } -> std::convertible_to<usz>;
-        { ty.data() } -> std::convertible_to<const char*>;
-    }
-    [[nodiscard]] auto operator()(const Ty& ty) const { 
-        return std::hash<std::string_view>{}(std::string_view{ty.data(), ty.size()});
-    }
-};
-
-template <typename T>
-using StringMap = std::unordered_map<std::string, T, StringHash, std::equal_to<>>;
-
-template <typename Callable>
-struct DeferType2 {
-    Callable cb_;
-
-    explicit DeferType2(Callable&& cb) : 
-        cb_(std::forward<Callable>(cb)) {}
-
-    ~DeferType2() { cb_(); }
-};
-
-struct DeferType1 {
-    template <typename Callable>
-    auto operator->*(Callable&& cb) -> DeferType2<Callable> {
-        return DeferType2<Callable>{std::forward<Callable>(cb)};
-    }
-};
-
-// Assertion kinds.
-enum struct AK {
-    Assertion,
-    Todo,
-    Unreachable
-};
-
-[[noreturn]] auto assert_helper(
-    AK k,
-    std::string_view cond,
-    std::string_view file,
-    std::string_view func_name,
-    u32 line,
-    std::string message = ""
-) -> void;
-
-auto fits_in_u8(i64 num) -> bool;
-auto fits_in_u16(i64 num) -> bool;
-auto fits_in_u32(i64 num) -> bool;
-
-auto fits_in_i8(i64 num) -> bool;
-auto fits_in_i16(i64 num) -> bool;
-auto fits_in_i32(i64 num) -> bool;
-
-auto fits_in_b8(i64 num) -> bool;
-auto fits_in_b16(i64 num) -> bool;
-auto fits_in_b32(i64 num) -> bool;
-
-auto number_width(u64 num, u32 base = 10) -> u32;
-
-auto load_file(const fs::path& path) -> Vec<char>;
-
-}  // namespace utils
-
 
 //=======================================================================================
 // Helper Macros.
@@ -194,6 +105,111 @@ auto load_file(const fs::path& path) -> Vec<char>;
         __LINE__                                   \
         __VA_OPT__(,fmt::format(__VA_ARGS__))      \
     )
+
+//=======================================================================================
+// Helper functions and types.
+//=======================================================================================
+template <typename E> 
+requires std::is_enum_v<E>
+constexpr auto operator+(E e) -> std::underlying_type_t<E> {
+    return std::to_underlying(e);
+}
+
+template <auto T, std::same_as<decltype(T)> auto... Us>
+auto is(const decltype(T)& arg) -> bool {
+    return ((arg == Us) or ...);
+}
+
+namespace utils {
+
+// Assertion kinds.
+enum struct AK {
+    Assertion,
+    Todo,
+    Unreachable
+};
+
+[[noreturn]] auto assert_helper(
+    AK k,
+    std::string_view cond,
+    std::string_view file,
+    std::string_view func_name,
+    u32 line,
+    std::string message = ""
+) -> void;
+
+// StringMap utility type.
+//
+// This is basically an std::unordered_map<std::string, T> but with the 
+// additional property of heterogeneous lookups. Lookups can be made using
+// any type that is convertible to a string_view. One important thing to note
+// here is that the type with which the lookup is made must be comparable to 
+// a string. Something like std::span<const char> will not work!
+// A vanilla std::unordered_map doesn't allow this kind of behaviour by default.
+struct StringHash {
+    using is_transparent = void;
+
+    [[nodiscard]] auto operator()(std::string_view data) const { return std::hash<std::string_view>{}(data); }
+
+    [[nodiscard]] auto operator()(const std::string& data) const { return std::hash<std::string>{}(data); }
+
+    template <typename Ty>
+    requires requires(const Ty& ty) {
+        { ty.size() } -> std::convertible_to<usz>;
+        { ty.data() } -> std::convertible_to<const char*>;
+    }
+    [[nodiscard]] auto operator()(const Ty& ty) const { 
+        return std::hash<std::string_view>{}(std::string_view{ty.data(), ty.size()});
+    }
+};
+
+template <typename T>
+using StringMap = std::unordered_map<std::string, T, StringHash, std::equal_to<>>;
+
+template <typename T, typename Str>
+requires requires(const Str& str) {
+    { str.size() } -> std::convertible_to<usz>;
+    { str.data() } -> std::convertible_to<const char*>;
+}
+auto strmap_get(const StringMap<T>& strmap, const Str& str_key) -> T {
+    assert(strmap.contains(str_key), "Key: '{}' not found in the stringmap", str_key);
+    return strmap.find(str_key)->second;
+}
+
+template <typename Callable>
+struct DeferType2 {
+    Callable cb_;
+
+    explicit DeferType2(Callable&& cb) : 
+        cb_(std::forward<Callable>(cb)) {}
+
+    ~DeferType2() { cb_(); }
+};
+
+struct DeferType1 {
+    template <typename Callable>
+    auto operator->*(Callable&& cb) -> DeferType2<Callable> {
+        return DeferType2<Callable>{std::forward<Callable>(cb)};
+    }
+};
+
+auto fits_in_u8(i64 num) -> bool;
+auto fits_in_u16(i64 num) -> bool;
+auto fits_in_u32(i64 num) -> bool;
+
+auto fits_in_i8(i64 num) -> bool;
+auto fits_in_i16(i64 num) -> bool;
+auto fits_in_i32(i64 num) -> bool;
+
+auto fits_in_b8(i64 num) -> bool;
+auto fits_in_b16(i64 num) -> bool;
+auto fits_in_b32(i64 num) -> bool;
+
+auto number_width(u64 num, u32 base = 10) -> u32;
+
+auto load_file(const fs::path& path) -> Vec<char>;
+
+}  // namespace utils
 
 
 #endif
