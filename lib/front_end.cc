@@ -610,7 +610,7 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
     expect(TK::RBracket);
 
     // Has scale and index
-    if (match_next_toks(TK::LBracket, TK::Num, TK::RBracket)) {
+    if (match_next_toks(TK::LBracket)) {
         expect(TK::LBracket, TK::Num, TK::RBracket, TK::LBracket, TK::Reg, TK::RBracket);
         index_reg = Reg {
             // All registers used to address memory in 64-bit mode are 64-bit wide.
