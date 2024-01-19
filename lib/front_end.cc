@@ -605,20 +605,30 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
                 .loc_ = tok().loc_,
                 .data_ = { .illegal_value_ = scale }
             };
-            report_error(err, "Illegal value of the memory reference scale");
+            report_error(err, "'{}' is not a legal index scale. Valid scales are '[1, 2, 4, 8]'.", scale);
         }
     }
 
     // Has displacement
     if (at(TK::Plus, TK::Minus) and peek_tok(1).kind_ == TK::Num) {
         expect_either(TK::Plus, TK::Minus); expect(TK::Num);
-        mem_disp = i64_of_str(StrRef{prev(1).str_.data(), prev(1).str_.size() + prev().str_.size()});
-        todo("Handle invalid mem_disp, either too big to fit in 64 bits or it's not a valid 32-bit displacement "
-                "allowed by the hardware.");
+        mem_disp = i64_of_str_unchecked(StrRef{prev(1).str_.data(), prev(1).str_.size() + prev().str_.size()});
+
+        if (not utils::fits_in_b32(mem_disp)) {
+            Error err {
+                .kind_ = ErrKind::IllegalValue,
+                .ctx_ = mod_->ctx_,
+                .loc_ = tok().loc_,
+            };
+            report_error(err, "memory reference displacement can't exceed 32-bits in size.");
+        }
     }
 
     // Ill formed memory reference encountered.
     if (not (base_reg or index_reg or mem_disp)) {
+        Error err {
+        };
+        report_error(err, "'{}' does not start a valid memory reference.");
         todo("report_error('Ill-formed memory reference encountered while parsing the operand)");
     }
 
@@ -627,7 +637,7 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
         .bit_width_ = bit_width,
         .base_reg_ = base_reg,
         .index_reg_ = index_reg,
-        disp_ = mem_disp
+        .disp_ = mem_disp
     };
 }
 
