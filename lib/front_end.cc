@@ -371,6 +371,7 @@ void fiska::Lexer::lex_hex_digit() {
             .loc_ = tok().loc_,
             .data_ = { .overflowed_num_ = tok().str_ }
         };
+        report_error(err, "Number too big to fit in 64-bits");
     }
 }
 
@@ -390,6 +391,7 @@ void fiska::Lexer::lex_digit() {
             .loc_ = tok().loc_,
             .data_ = { .overflowed_num_ = tok().str_ }
         };
+        report_error(err, "Number too big to fit in 64-bits.");
     }
 }
 
@@ -595,9 +597,16 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
             .id_ = utils::strmap_get(x86_registers, prev(1).str_)
         };
 
-        if (not is_valid_mem_index_scale(scale)) {
+        // Illegal memory reference scale.
+        if (not is<1, 2, 4, 8>(scale)) {
+            Error err {
+                .kind_ = ErrKind::IllegalValue,
+                .ctx_ = mod_->ctx_,
+                .loc_ = tok().loc_,
+                .data_ = { .illegal_value_ = scale }
+            };
+            report_error(err, "Illegal value of the memory reference scale");
         }
-        todo("Handle invalid scale, either too big to fit in 64-bits or not supported by the hardware");
     }
 
     // Has displacement

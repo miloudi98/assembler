@@ -111,6 +111,7 @@ enum struct ErrKind {
     UnexpectedChar,
     UnexpectedTok,
     NumberOverflow,
+    IllegalValue,
 };
 
 struct Tok {
@@ -383,6 +384,10 @@ template <typename... Args>
     }
     case ErrKind::NumberOverflow: {
         fmt::print(bold | fg(light_gray), "Number overflow when converting number: '{}'.", err.data_.overflowed_num_);
+        break;
+    }
+    case ErrKind::IllegalValue: {
+        fmt::print(bold | fg(light_gray), "Illegal value encountered.");
         break;
     }
     } // switch
