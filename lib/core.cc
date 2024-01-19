@@ -61,11 +61,11 @@ auto utils::number_width(u64 num, u32 base) -> u32 {
 
 [[noreturn]] auto utils::assert_helper(
     utils::AK k,
-    std::string_view cond,
-    std::string_view file,
-    std::string_view func_name,
+    StrRef cond,
+    StrRef file,
+    StrRef func_name,
     u32 line,
-    std::string message
+    Str message
 ) -> void
 {
     using enum fmt::color;

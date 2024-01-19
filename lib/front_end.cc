@@ -164,8 +164,29 @@ auto i64_of_str(StrRef str) -> Opt<i64> {
     return static_cast<i64>(is_negative ? -ret : ret);
 }
 
-auto i64_of_str_unchecked(StrRef num) -> i64 {
-    return i64_of_str().value();
+auto i64_of_str_unchecked(StrRef str) -> i64 {
+    return i64_of_str(str).value();
+}
+
+auto scale_of_i64(i64 scale) -> Mem::Scale {
+    switch (scale) {
+    case 1: return Mem::Scale::One;
+    case 2: return Mem::Scale::Two;
+    case 4: return Mem::Scale::Four;
+    case 8: return Mem::Scale::Eight;
+    default: unreachable("Illegal raw scale '{}' passed to |scale_of_i64|.", scale);
+    } // switch
+}
+
+auto concat_str_refs(std::same_as<StrRef> auto... strs) -> Str {
+    Str ret{};
+
+    auto helper = [&](StrRef str_ref) {
+        ret += Str{str_ref};
+    };
+
+    (helper(strs), ...);
+    return ret;
 }
 
 }  // namespace
@@ -477,11 +498,9 @@ void fiska::Parser::next_tok() {
     curr_tok_it_++;
 }
 
-auto fiska::Parser::parse_proc_expr() -> ProcExpr* {
-    expect(TK::Fn, TK::Ident);
-    StrRef func_name = prev().str_;
-
-    expect(TK::LBrace);
+auto fiska::Parser::parse_proc_expr() -> Expr* {
+    expect(TK::Fn, TK::Ident, TK::LBrace);
+    StrRef func_name = prev(1).str_;
 
     Vec<Box<X86Instruction>> instructions;
     while (not at(TK::RBrace)) {
@@ -493,28 +512,26 @@ auto fiska::Parser::parse_proc_expr() -> ProcExpr* {
 }
 
 auto fiska::Parser::parse_x86_instruction() -> X86Instruction* {
-    expect(TK::Mnemonic);
-    X86IK instruction_kind = strmap_get(x86_instruction_kinds, prev().str_);
-    expect(TK::LParen);
+    expect(TK::Mnemonic, TK::LParen);
+    X86IK instruction_kind = strmap_get(x86_instruction_kinds, prev(1).str_);
 
     switch (instruction_kind) {
     case X86IK::Mov: {
         X86Op dst = parse_x86_operand();
         expect(TK::Comma);
         X86Op src = parse_x86_operand();
-        expect(TK::RParen);
+        expect(TK::RParen, TK::SemiColon);
 
-        return new (mod_) Mov(dst, src);
+        return new Mov(dst, src);
     }
     } // switch
 
-
-    todo("to be implemented");
+    unreachable();
 }
 
 template <OneOf<Reg, Imm, Mem, Moffs> Type>
 auto fiska::Parser::try_parse_x86_operand() -> Opt<Type> {
-    static_assert(false and "The parser is not implemented yet for the type");
+    static_assert(false and "The parser is not implemented for the type");
     unreachable();
 }
 
@@ -535,15 +552,22 @@ auto fiska::Parser::try_parse_x86_operand<Reg>() -> Opt<Reg> {
 template <>
 auto fiska::Parser::try_parse_x86_operand<Imm>() -> Opt<Imm> {
     // Not an |Imm| operand.
-    if (not match_next_toks(TK::BitWidth, TK::Num)) { return std::nullopt; }
+    if (not (match_next_toks(TK::BitWidth, TK::Num)
+        or match_next_toks(TK::BitWidth, TK::Plus, TK::Num)
+        or match_next_toks(TK::BitWidth, TK::Minus, TK::Num)))
+    {
+        return std::nullopt;
+    }
 
-    expect(TK::BitWidth, TK::Num);
+    expect(TK::BitWidth);
+    bool has_sign = consume(TK::Plus, TK::Minus);
+    expect(TK::Num);
 
     return Imm {
         .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
         // SAFETY: This will never panic because we check for overflow when lexing the
         // number.
-        .inner_ = i64_of_str_unchecked(prev().str_)
+        .inner_ = i64_of_str_unchecked(has_sign ? concat_str_refs(prev(1).str_, prev().str_) : prev().str_)
     };
 }
 
@@ -555,7 +579,7 @@ auto fiska::Parser::try_parse_x86_operand<Moffs>() -> Opt<Moffs> {
     expect(TK::At, TK::BitWidth, TK::Num);
 
     return Moffs { 
-        .bit_width_ = utils::strmap_get(bit_widhts, prev(1).str_),
+        .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
         // SAFETY: This will never panic because we check for overflow when lexing the 
         // number.
         .inner_ = i64_of_str_unchecked(prev().str_)
@@ -569,28 +593,25 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
 
     expect(TK::At, TK::BitWidth);
 
-    StrRef bit_width = prev().str_;
+    BW bit_width = utils::strmap_get(bit_widths, prev().str_);
     Opt<Reg> base_reg{std::nullopt};
     Opt<Reg> index_reg{std::nullopt};
     Opt<Mem::Scale> scale{std::nullopt};
     Opt<i64> mem_disp{std::nullopt};
 
     expect(TK::LBracket);
-    if (match_next_toks(TK::Reg)) {
-        expect(TK::Reg);
+    if (consume(TK::Reg)) {
         base_reg = Reg {
             // All registers used to address memory in 64-bit mode are 64-bit wide.
             .bit_width_ = BW::B64,
             .id_ = utils::strmap_get(x86_registers, prev().str_)
         };
-        mem_ref_kind = MK::BaseDisp;
     }
     expect(TK::RBracket);
 
     // Has scale and index
     if (match_next_toks(TK::LBracket, TK::Num, TK::RBracket)) {
         expect(TK::LBracket, TK::Num, TK::RBracket, TK::LBracket, TK::Reg, TK::RBracket);
-        scale = i64_of_str_unchecked(prev(4).str_);
         index_reg = Reg {
             // All registers used to address memory in 64-bit mode are 64-bit wide.
             .bit_width_ = BW::B64,
@@ -598,45 +619,49 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
         };
 
         // Illegal memory reference scale.
-        if (not is<1, 2, 4, 8>(scale)) {
+        i64 raw_scale = i64_of_str_unchecked(prev(4).str_);
+        if (not is<1LL, 2LL, 4LL, 8LL>(raw_scale)) {
             Error err {
                 .kind_ = ErrKind::IllegalValue,
                 .ctx_ = mod_->ctx_,
-                .loc_ = tok().loc_,
-                .data_ = { .illegal_value_ = scale }
+                .loc_ = prev(4).loc_,
+                .data_ = { .illegal_num_ = raw_scale }
             };
-            report_error(err, "'{}' is not a legal index scale. Valid scales are '[1, 2, 4, 8]'.", scale);
+            report_error(err, "'{}' is not a legal index scale. Valid scales are '[1, 2, 4, 8]'.", raw_scale);
         }
+        scale = scale_of_i64(raw_scale);
     }
 
     // Has displacement
-    if (at(TK::Plus, TK::Minus) and peek_tok(1).kind_ == TK::Num) {
-        expect_either(TK::Plus, TK::Minus); expect(TK::Num);
-        mem_disp = i64_of_str_unchecked(StrRef{prev(1).str_.data(), prev(1).str_.size() + prev().str_.size()});
+    if (consume(TK::Plus, TK::Minus) and consume(TK::Num)) {
+        mem_disp = i64_of_str_unchecked(concat_str_refs(prev(1).str_, prev().str_));
 
-        if (not utils::fits_in_b32(mem_disp)) {
+        if (not utils::fits_in_b32(mem_disp.value())) {
+            Location sign_and_number_merged_loc {
+                .pos_ = prev(1).loc_.pos_,
+                .len_ = prev().loc_.pos_ + prev().loc_.len_ - prev(1).loc_.pos_,
+                .fid_ = fid_,
+            };
             Error err {
                 .kind_ = ErrKind::IllegalValue,
                 .ctx_ = mod_->ctx_,
-                .loc_ = tok().loc_,
+                .loc_ = sign_and_number_merged_loc,
+                .data_ = { .illegal_num_ = mem_disp.value() }
             };
-            report_error(err, "memory reference displacement can't exceed 32-bits in size.");
+            report_error(err, "memory reference displacement can't exceed 32-bits.");
         }
     }
 
     // Ill formed memory reference encountered.
     if (not (base_reg or index_reg or mem_disp)) {
-        Error err {
-        };
-        report_error(err, "'{}' does not start a valid memory reference.");
-        todo("report_error('Ill-formed memory reference encountered while parsing the operand)");
+        todo("Ill-formed memory reference. User error message is still not yet implemented");
     }
 
     return Mem {
-        .kind_ = mem_ref_kind.value(),
         .bit_width_ = bit_width,
         .base_reg_ = base_reg,
         .index_reg_ = index_reg,
+        .scale_ = scale,
         .disp_ = mem_disp
     };
 }

@@ -130,6 +130,7 @@ struct Error {
         char c_;
         TK tok_kind_;
         StrRef overflowed_num_;
+        i64 illegal_num_;
     } data_{};
 };
 
@@ -171,8 +172,8 @@ struct Mem {
     BW bit_width_{};
     Opt<Reg> base_reg_{std::nullopt};
     Opt<Reg> index_reg_{std::nullopt};
-    Opt<i64> disp_{std::nullopt};
     Opt<Scale> scale_{std::nullopt};
+    Opt<i64> disp_{std::nullopt};
 
     [[nodiscard]] auto kind() -> MK {
         todo();
@@ -243,7 +244,9 @@ struct Expr {
     Expr(ExprKind kind) : kind_(kind) {}
     virtual ~Expr() = default;
 
+    // Create an expression and bind it to its parent module.
     void* operator new(usz sz, Module* mod);
+    // Disallow creating expressions with no owner module.
     void* operator new(usz sz) = delete;
 };
 
@@ -387,7 +390,7 @@ template <typename... Args>
         break;
     }
     case ErrKind::IllegalValue: {
-        fmt::print(bold | fg(light_gray), "Illegal value encountered.");
+        fmt::print(bold | fg(light_gray), "Illegal value encountered: '{}'.", err.data_.illegal_num_);
         break;
     }
     } // switch
@@ -439,36 +442,38 @@ struct Parser {
     }
 
     void expect(std::same_as<TK> auto... tok_kind) {
+        // TODO: this logic messes up the error reporting. make sure you consume the tokens
+        // and only pass the rest of the tokens to the error_handler.
         if ((consume(tok_kind) and ...)) { return; }
-        expect_error_handler(tok_kind...):
+        expect_error_handler(tok_kind...);
     }
     void expect_either(std::same_as<TK> auto... tok_kind) {
         if ((consume(tok_kind) or ...)) { return; }
-        expect_error_handler(tok_kind...):
+        expect_error_handler(tok_kind...);
     }
 
     [[noreturn]] void expect_error_handler(std::same_as<TK> auto... tok_kind) {
-        std::string tokens_spelling{};
+        Str token_spelling_list{};
         auto helper = [&](TK tok_kind) {
-            tokens_spelling += fmt::format("{}, ", Tok::spelling(tok_kind));
-        }();
+            token_spelling_list += fmt::format("{}, ", Tok::spelling(tok_kind));
+        };
         (helper(tok_kind), ...);
 
         // Remove the last " ," suffix from the list of token spellings.
-        tokens_spelling.pop_back();
-        tokens_spelling.pop_back();
+        token_spelling_list.pop_back();
+        token_spelling_list.pop_back();
 
-        Erorr err {
+        Error err {
             .kind_ = ErrKind::UnexpectedTok,
             .ctx_ = mod_->ctx_,
             .loc_ = tok().loc_,
-            .data_ = { .tok_kind = tok().kind_ }
+            .data_ = { .tok_kind_ = tok().kind_ }
         };
         report_error(err, "was expecting the following tokens '{}' but found '{}' instead.",
-                fmt::format("[{}]", token_spelling), err.data_.tok_kind_);
+                fmt::format("[{}]", token_spelling_list), Tok::spelling(err.data_.tok_kind_));
     }
 
-    auto parse_proc_expr() -> ProcExpr*;
+    auto parse_proc_expr() -> Expr*;
     auto parse_x86_instruction() -> X86Instruction*;
     auto parse_x86_operand() -> X86Op;
 

@@ -51,6 +51,7 @@ using Opt = std::optional<T>;
 
 using ByteVec = Vec<u8>;
 using StrRef = std::string_view;
+using Str = std::string;
 
 template <typename T, typename... Us>
 concept OneOf = (std::same_as<T, Us> or ...);
