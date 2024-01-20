@@ -242,6 +242,9 @@ struct X86Instruction {
     void* operator new(usz sz, ProcExpr* enclosing_proc);
     // Disallow creating expressions with no enclosing procedure.
     void* operator new(usz sz) = delete;
+
+    // Human readable representation of the instruction's encoding.
+    auto str_of_encoding() const -> Str;
 };
 
 struct Mov : public X86Instruction {

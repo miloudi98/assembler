@@ -216,7 +216,7 @@ auto operator+=(ModulePrinter::UTF32Str& me, const Container& other) -> ModulePr
 }
 
 template <typename T>
-constexpr auto is_top_level_expr() -> bool { return OneOf<T, ProcExpr>; }
+consteval auto is_top_level_expr() -> bool { return OneOf<T, ProcExpr>; }
 
 }  // namespace
 
@@ -529,6 +529,18 @@ void* fiska::X86Instruction::operator new(usz sz, ProcExpr* enclosing_proc) {
     auto instr = static_cast<X86Instruction*>(::operator new(sz));
     enclosing_proc->instructions_.push_back(instr);
     return instr;
+}
+
+auto fiska::X86Instruction::str_of_encoding() const -> Str {
+    Str ret{};
+    ret += "[";
+    for (auto [idx, byte] : encoding_ | vws::enumerate) {
+        ret += fmt::format("{:#04x}{}",
+                byte,
+                u32(idx) == encoding_.size() - 1 ? "" : ", ");
+    }
+    ret += "]";
+    return ret;
 }
 
 fiska::ProcExpr::~ProcExpr() {
@@ -859,7 +871,8 @@ void fiska::ModulePrinter::print(X86Instruction* instruction, bool is_last) {
     switch (instruction->kind_) {
     case X86IK::Mov: {
         auto mov = static_cast<Mov*>(instruction);
-        out_ += c("Mov\n", fg(dark_cyan));
+        out_ += c("Mov", fg(dark_cyan));
+        out_ += fmt::format(" {}\n", mov->str_of_encoding());
 
         indent_++;
         print(mov->dst_, /*is_last=*/false);
@@ -876,10 +889,10 @@ void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
     auto c_cyan = [&](const auto& value) { return c(value, fg(cyan)); };
 
     // Print the operand title.
-    if (op.is<Reg>())   { out_ += c("Reg", fg(green));   }
-    if (op.is<Mem>())   { out_ += c("Mem", fg(green));   }
-    if (op.is<Moffs>()) { out_ += c("Moffs", fg(green)); }
-    if (op.is<Imm>())   { out_ += c("Imm", fg(green));   }
+    if (op.is<Reg>())   { out_ += c("Reg", fg(dark_cyan));   }
+    if (op.is<Mem>())   { out_ += c("Mem", fg(dark_cyan));   }
+    if (op.is<Moffs>()) { out_ += c("Moffs", fg(dark_cyan)); }
+    if (op.is<Imm>())   { out_ += c("Imm", fg(dark_cyan));   }
     out_ += StrRef{"\n"};
 
     indent_++;
