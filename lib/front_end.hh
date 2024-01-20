@@ -10,6 +10,7 @@
 namespace fiska {
 
 struct Module;
+struct ProcExpr;
 
 enum struct X86IK {
     Mov,
@@ -21,6 +22,7 @@ enum struct BW : u16 {
     B32 = 32,
     B64 = 64
 };
+auto str_of_bw(BW bit_width) -> StrRef;
 
 // Register Ids.
 // Never change the declaration order or the values of this enumeration.
@@ -43,10 +45,12 @@ enum struct RI {
     R14 = 14,          Cr14 = 38, Dbg14 = 54,
     R15 = 15,          Cr15 = 39, Dbg15 = 55,
 };
+auto str_of_ri(RI id) -> StrRef;
 
 enum struct RK {
     Gp, Seg, Ctrl, Dbg
 };
+auto str_of_rk(RK kind) -> StrRef;
 
 enum struct MK {
     BaseDisp,
@@ -139,13 +143,13 @@ struct Reg {
     BW bit_width_{};
     RI id_{};
 
-    auto index() -> u8 { return +id_ & 0x7; }
-    auto requires_extension() -> bool {
+    auto index() const -> u8 { return +id_ & 0x7; }
+    auto requires_extension() const -> bool {
         return (+id_ >= +RI::R8 and +id_ <= +RI::R15)
             or (+id_ >= +RI::Cr8 and +id_ <= +RI::Cr15)
             or (+id_ >= +RI::Dbg8 and +id_ <= +RI::Dbg15);
     }
-    auto kind() -> RK {
+    auto kind() const -> RK {
         if (+id_ >= +RI::Rax and +id_ <= +RI::R15) { return RK::Gp; }
         if (+id_ >= +RI::Es and +id_ <= +RI::Gs) { return RK::Seg; }
         if (+id_ >= +RI::Cr0 and +id_ <= +RI::Cr15) { return RK::Ctrl; }
@@ -167,7 +171,7 @@ struct Mem {
         One = 0,
         Two = 1,
         Four = 2,
-        Eight = 8
+        Eight = 3
     };
 
     BW bit_width_{};
@@ -185,7 +189,7 @@ struct Moffs {
     BW bit_width_{};
     i64 inner_{};
 
-    auto as_i64() -> i64 { return inner_; }
+    auto as_i64() const -> i64 { return inner_; }
 };
 
 struct Imm {
@@ -193,7 +197,7 @@ struct Imm {
     i64 inner_{};
 
     template <OneOf<i8, i16, i32, i64> Size>
-    auto as() -> Size { return static_cast<Size>(inner_); }
+    auto as() const -> Size { return static_cast<Size>(inner_); }
 };
 
 struct X86Op {
@@ -226,9 +230,18 @@ concept IsX86Op = std::same_as<T, Reg> or std::same_as<T, Imm>
 // by the procedure containing them.
 struct X86Instruction {
     X86IK kind_{};
+    ByteVec encoding_{};
 
     X86Instruction(X86IK kind) : kind_(kind) {}
+    X86Instruction(X86IK kind, ByteVec encoding) : kind_(kind), encoding_(encoding) {}
     virtual ~X86Instruction() = default;
+
+    // Create an instruction and bind it to the enclosing procedure.
+    // The enclosing procedure is responsible for freeing the instructions
+    // it contains.
+    void* operator new(usz sz, ProcExpr* enclosing_proc);
+    // Disallow creating expressions with no enclosing procedure.
+    void* operator new(usz sz) = delete;
 };
 
 struct Mov : public X86Instruction {
@@ -246,18 +259,20 @@ struct Expr {
     virtual ~Expr() = default;
 
     // Create an expression and bind it to its parent module.
-    void* operator new(usz sz, Module* mod);
+    void* operator new(usz sz, Module* mod, bool is_top_level_expr);
     // Disallow creating expressions with no owner module.
     void* operator new(usz sz) = delete;
 };
 
 struct ProcExpr : public Expr {
     StrRef func_name_{};
-    Vec<Box<X86Instruction>> instructions_{};
+    Vec<X86Instruction*> instructions_{};
 
-    ProcExpr(StrRef func_name, Vec<Box<X86Instruction>> instructions)
+    ProcExpr() : Expr(ExprKind::ProcExpr) {}
+    ProcExpr(StrRef func_name, Vec<X86Instruction*> instructions)
         : Expr(ExprKind::ProcExpr), func_name_(func_name),
         instructions_(std::move(instructions)) {}
+    ~ProcExpr();
 };
 
 struct TokStream {
@@ -271,10 +286,11 @@ struct TokStream {
 };
 
 struct Module {
+    Str name_{};
     StringInterner strings_;
     TokStream tokens_;
     Vec<Expr*> ast_;
-    Vec<ProcExpr*> procs_;
+    Vec<Expr*> top_level_exprs_;
     Context* ctx_{};
 
     Module() {}
@@ -489,7 +505,7 @@ struct Parser {
     }
 
     auto parse_proc_expr() -> Expr*;
-    auto parse_x86_instruction() -> X86Instruction*;
+    auto parse_x86_instruction(ProcExpr* enclosing_proc) -> X86Instruction*;
     auto parse_x86_operand() -> X86Op;
 
     template <OneOf<Reg, Imm, Mem, Moffs> Type>
@@ -509,6 +525,34 @@ struct Parser {
     auto peek_tok(u32 lookahead = 0) -> const Tok&;
     void next_tok();
     static void parse_file_into_module(File* file, Module* mod);
+};
+
+struct ModulePrinter {
+    // Helper constants, types and functions.
+    using UTF32Str = std::u32string;
+    using enum fmt::color;
+    using enum fmt::emphasis;
+    static constexpr char32_t bleft_corn = U'\u2514';
+    static constexpr char32_t bleft_corn_cont = U'\u251c';
+    static constexpr char32_t dash = U'\u2500';
+    static constexpr char32_t vline = U'\u2502';
+
+    u32 indent_{};
+    UTF32Str prev_line_prefix_{};
+    UTF32Str out_{};
+
+    auto line_prefix(bool is_last) -> UTF32Str; 
+
+    template <typename T>
+    auto c(const T& value, const fmt::text_style& ts) const -> Str {
+        return fmt::format(ts, "{}", value);
+    }
+
+    void print_module_helper(Module* mod);
+    void print(Expr* expr, bool is_last);
+    void print(X86Instruction* instruction, bool is_last);
+    void print(const X86Op& op, bool is_last);
+    static void print_module(Module* mod);
 };
 
 }  // namespace fiska

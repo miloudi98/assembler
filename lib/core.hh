@@ -59,6 +59,7 @@ concept OneOf = (std::same_as<T, Us> or ...);
 namespace fs = std::filesystem;
 namespace vws = std::views;
 namespace rgs = std::ranges;
+using namespace std::string_literals;
 
 //=======================================================================================
 // Helper Macros.

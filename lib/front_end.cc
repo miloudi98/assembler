@@ -184,7 +184,7 @@ auto operator>>=(const Opt<T>& me, const Opt<X86Op>& you) -> Opt<X86Op> {
     return integer.value();
 }
 
-auto scale_of_i64(i64 scale) -> Mem::Scale {
+[[nodiscard]] auto scale_of_i64(i64 scale) -> Mem::Scale {
     switch (scale) {
     case 1: return Mem::Scale::One;
     case 2: return Mem::Scale::Two;
@@ -194,7 +194,7 @@ auto scale_of_i64(i64 scale) -> Mem::Scale {
     } // switch
 }
 
-auto concat_str_refs(std::same_as<StrRef> auto... strs) -> Str {
+[[nodiscard]] auto concat_str_refs(std::same_as<StrRef> auto... strs) -> Str {
     Str ret{};
 
     auto helper = [&](StrRef str_ref) {
@@ -205,7 +205,52 @@ auto concat_str_refs(std::same_as<StrRef> auto... strs) -> Str {
     return ret;
 }
 
+template <typename Container>
+requires requires (const Container& container) {
+    {container.begin()};
+    {container.end()};
+}
+auto operator+=(ModulePrinter::UTF32Str& me, const Container& other) -> ModulePrinter::UTF32Str {
+    me.insert(me.end(), other.begin(), other.end());
+    return me;
+}
+
+template <typename T>
+constexpr auto is_top_level_expr() -> bool { return OneOf<T, ProcExpr>; }
+
 }  // namespace
+
+auto fiska::str_of_bw(BW bit_width) -> StrRef {
+    switch (bit_width) {
+    case BW::B8: return "b8";
+    case BW::B16: return "b16";
+    case BW::B32: return "b32";
+    case BW::B64: return "b64";
+    } // switch
+
+    unreachable();
+}
+
+auto fiska::str_of_ri(RI rid) -> StrRef {
+    auto ret = std::find_if(
+        x86_registers.begin(),
+        x86_registers.end(),
+        [rid](const auto& p) { return p.second == rid; }
+    );
+
+    assert(ret != x86_registers.end(), "Forgot to update the |x86_registers| mapping.");
+    return ret->first;
+}
+
+auto fiska::str_of_rk(RK rkind) -> StrRef {
+    switch (rkind) {
+    case RK::Gp: return "General Purpose";
+    case RK::Seg: return "Segment";
+    case RK::Ctrl: return "Control";
+    case RK::Dbg: return "Debug";
+    } // switch
+    unreachable();
+}
 
 auto fiska::Lexer::file_offset() -> u32 {
     auto f = mod_->ctx_->get_file(fid_);
@@ -470,14 +515,24 @@ void fiska::Lexer::lex_file_into_module(File* file, Module* mod) {
 }
 
 
-void* fiska::Expr::operator new(usz sz, Module* mod) {
+void* fiska::Expr::operator new(usz sz, Module* mod, bool is_top_level_expr) {
     auto expr = static_cast<Expr*>(::operator new(sz));
     mod->ast_.push_back(expr);
 
-    if (expr->kind_ == ExprKind::ProcExpr) {
-        mod->procs_.push_back(static_cast<ProcExpr*>(expr));
+    if (is_top_level_expr) {
+        mod->top_level_exprs_.push_back(expr);
     }
     return expr;
+}
+
+void* fiska::X86Instruction::operator new(usz sz, ProcExpr* enclosing_proc) {
+    auto instr = static_cast<X86Instruction*>(::operator new(sz));
+    enclosing_proc->instructions_.push_back(instr);
+    return instr;
+}
+
+fiska::ProcExpr::~ProcExpr() {
+    rgs::for_each(instructions_, [](X86Instruction* instr) { delete instr; });
 }
 
 fiska::Module::~Module() {
@@ -512,16 +567,21 @@ auto fiska::Parser::parse_proc_expr() -> Expr* {
     expect(TK::Fn, TK::Ident, TK::LBrace);
     StrRef func_name = prev(1).str_;
 
-    Vec<Box<X86Instruction>> instructions;
+    auto proc_expr = new (mod_, is_top_level_expr<ProcExpr>()) ProcExpr;
+
+    Vec<X86Instruction*> instructions;
     while (not at(TK::RBrace)) {
-        instructions.push_back(Box<X86Instruction>{parse_x86_instruction()});
+        instructions.push_back(parse_x86_instruction(proc_expr));
     }
     expect(TK::RBrace);
 
-    return new (mod_) ProcExpr(func_name, std::move(instructions));
+    proc_expr->instructions_ = std::move(instructions);
+    proc_expr->func_name_ = func_name;
+
+    return proc_expr;
 }
 
-auto fiska::Parser::parse_x86_instruction() -> X86Instruction* {
+auto fiska::Parser::parse_x86_instruction(ProcExpr* enclosing_proc) -> X86Instruction* {
     expect(TK::Mnemonic, TK::LParen);
     X86IK instruction_kind = strmap_get(x86_instruction_kinds, prev(1).str_);
 
@@ -532,7 +592,7 @@ auto fiska::Parser::parse_x86_instruction() -> X86Instruction* {
         X86Op src = parse_x86_operand();
         expect(TK::RParen, TK::SemiColon);
 
-        return new Mov(dst, src);
+        return new (enclosing_proc) Mov(dst, src);
     }
     } // switch
 
@@ -731,4 +791,136 @@ auto fiska::Parser::parse_x86_operand() -> X86Op {
 void fiska::Parser::parse_file_into_module(File* file, Module* mod) {
     Parser p{file, mod};
     while (p.tok().kind_ != TK::Eof) { p.parse_proc_expr(); }
+}
+
+auto fiska::ModulePrinter::line_prefix(bool is_last) -> UTF32Str {
+    assert(indent_ >= 1);
+    u32 num_spaces = (indent_ - 1) << 1;
+
+    UTF32Str ret(num_spaces, ' ');
+
+    auto must_cont_line = [&](auto&& p) {
+        return is<bleft_corn_cont, vline>(std::get<1>(p))
+            and u64(std::get<0>(p)) < ret.size();
+    };
+
+    for (auto [idx, _] : prev_line_prefix_ | vws::enumerate | vws::filter(must_cont_line)) {
+        ret[u32(idx)] = vline;
+    }
+
+    ret.push_back(is_last ? bleft_corn : bleft_corn_cont);
+    ret.push_back(dash);
+    prev_line_prefix_ = std::move(ret);
+
+    return prev_line_prefix_;
+}
+
+void fiska::ModulePrinter::print_module_helper(Module* mod) {
+    out_ += fmt::format("{} <{}>\n",
+            c("Module", fg(red)),
+            c(mod->name_, fg(cadet_blue)));
+
+    indent_++;
+    for (auto [expr_idx, expr] : mod->top_level_exprs_ | vws::enumerate) {
+        print(expr, /*is_last=*/u32(expr_idx) == mod->top_level_exprs_.size() - 1);
+    }
+    indent_--;
+
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+    fmt::print("{}\n", converter.to_bytes(std::move(out_)));
+}
+
+void fiska::ModulePrinter::print_module(Module* mod) {
+    ModulePrinter printer{};
+    printer.print_module_helper(mod);
+}
+
+void fiska::ModulePrinter::print(Expr* expr, bool is_last) {
+    out_ += line_prefix(is_last);
+    switch (expr->kind_) {
+    case ExprKind::ProcExpr: {
+        auto proc_expr = static_cast<ProcExpr*>(expr);
+        out_ += fmt::format("{} <{}>\n",
+                c("Proc", bold | fg(red)),
+                c(proc_expr->func_name_, fg(cadet_blue)));
+
+        indent_++;
+        for (auto [instr_idx, instr] : proc_expr->instructions_ | vws::enumerate) {
+            print(instr, /*is_last=*/u32(instr_idx) == proc_expr->instructions_.size() - 1);
+        }
+        indent_--;
+        break;
+    }
+    } // switch
+}
+
+void fiska::ModulePrinter::print(X86Instruction* instruction, bool is_last) {
+    out_ += line_prefix(is_last);
+    switch (instruction->kind_) {
+    case X86IK::Mov: {
+        auto mov = static_cast<Mov*>(instruction);
+        out_ += c("Mov\n", fg(dark_cyan));
+
+        indent_++;
+        print(mov->dst_, /*is_last=*/false);
+        print(mov->src_, /*is_last=*/true);
+        indent_--;
+        break;
+    }
+    } // switch
+}
+
+void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
+    out_ += line_prefix(is_last);
+
+    auto c_cyan = [&](const auto& value) { return c(value, fg(cyan)); };
+
+    // Print the operand title.
+    if (op.is<Reg>())   { out_ += c("Reg", fg(green));   }
+    if (op.is<Mem>())   { out_ += c("Mem", fg(green));   }
+    if (op.is<Moffs>()) { out_ += c("Moffs", fg(green)); }
+    if (op.is<Imm>())   { out_ += c("Imm", fg(green));   }
+    out_ += StrRef{"\n"};
+
+    indent_++;
+    if (op.is<Reg>()) {
+        const Reg& reg = op.as<Reg>();
+
+        out_ += line_prefix(/*is_last=*/true);
+        out_ += fmt::format(" Id: {}, Kind: {}, Bit width: {} \n",
+                c_cyan(str_of_ri(reg.id_)),
+                c_cyan(str_of_rk(reg.kind())),
+                c_cyan(str_of_bw(reg.bit_width_)));
+    }
+
+    if (op.is<Mem>()) {
+        const Mem& mem = op.as<Mem>();
+        out_ += line_prefix(/*is_last*/true);
+        out_ += fmt::format(" Base: {}, Index: {}, Scale: {}, Disp: {}, Bit width: {} \n",
+                c_cyan(mem.base_reg_ ? str_of_ri(mem.base_reg_.value().id_) : "None"),
+                c_cyan(mem.index_reg_ ? str_of_ri(mem.index_reg_.value().id_) : "None"),
+                c_cyan(mem.scale_ ? std::to_string(1 << +mem.scale_.value()) : "None"s),
+                c_cyan(mem.disp_ ? std::to_string(mem.disp_.value()) : "None"s),
+                c_cyan(str_of_bw(mem.bit_width_)));
+
+    }
+
+    if (op.is<Imm>()) {
+        const Imm& imm = op.as<Imm>();
+        out_ += line_prefix(/*is_last*/true);
+        out_ += fmt::format(" Value: {}, Bit width: {}\n",
+                c_cyan(std::to_string(imm.as<i64>())),
+                c_cyan(str_of_bw(imm.bit_width_)));
+    }
+
+    if (op.is<Moffs>()) {
+        const Moffs& moffs = op.as<Moffs>();
+
+        out_ += line_prefix(/*is_last*/true);
+        out_ += fmt::format(" Address: {}, Bit width: {} \n",
+                fmt::format(fg(cyan), "{:#04x}", moffs.as_i64()),
+                c_cyan(str_of_bw(moffs.bit_width_)));
+    }
+
+    indent_--;
 }
