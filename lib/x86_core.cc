@@ -18,8 +18,12 @@ auto fiska::Location::line_col_info(Context* ctx) const -> LineColInfo {
     assert(curr_pos < file_end and curr_pos + len_ < file_end,
         "Invalid location Location{{.pos_ = {}, .len_ = {}, .fid_ = {}}}\n", pos_, len_, fid_);
 
-    LineColInfo info{};
-    std::tie(info.line_start_, info.line_end_) = {curr_pos, curr_pos};
+    LineColInfo info {
+        .line_ = 0,
+        .col_ = 0,
+        .line_start_ = curr_pos,
+        .line_end_ = curr_pos + len_
+    };
 
     while (info.line_end_ < file_end and *(info.line_end_) != '\n') { info.line_end_++; }
     while (info.line_start_ > file_start and *(info.line_start_) != '\n') { info.line_start_--; }

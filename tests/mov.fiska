@@ -4,10 +4,10 @@ fn function {
     mov(b32 rax, @b32 [rax][1][rbx] + 0x1122);
     mov(b32 r12, @b32 0x11223344);
     mov(b32 r12, @b32 [rax]);
-    mov(b32 r12, b16 es);
-}
+    mov(b32 b16 es
 
-fn second_function {
+
+second_function {
     mov(b64 rax, @b64 [] - 92233);
     mov(b32 rax, @b32 [rax][1][rbx] + 0x1122);
     mov(b32 r12, @b32 0x11223344);

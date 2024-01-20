@@ -776,13 +776,15 @@ auto fiska::Parser::parse_x86_operand() -> X86Op {
 
     // TODO(miloudi): Error handling should probably not be here since we don't really have
     // any context of what instruction we're currently parsing. This limits the amount of
-    // information we can give as an error message.
+    // information we can give in an error message.
     // It's good enough for now, but this needs to change later.
     if (not op) {
         Location loc{tok().loc_};
-        // Keep merging the location of the lexemes until we find a ','.
+        // Keep merging the location of the lexemes until we find a stoping token.
+        // A stoping token is chosen arbitrarly here. Having keyword tokens (e.g 'fn', 'mnemonic')
+        // as stopping tokens seems like a good heuristic.
         // Report the whole set of tokens as an invalid start of a known operand.
-        while (not at(TK::Comma, TK::RParen, TK::SemiColon, TK::Eof)) {
+        while (not at(TK::Fn, TK::Mnemonic, TK::Comma, TK::SemiColon, TK::Eof)) {
             loc = loc.merge(tok().loc_);
             next_tok();
         }
@@ -884,21 +886,15 @@ void fiska::ModulePrinter::print(X86Instruction* instruction, bool is_last) {
 }
 
 void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
-    out_ += line_prefix(is_last);
-
     auto c_cyan = [&](const auto& value) { return c(value, fg(cyan)); };
-
-    // Print the operand title.
-    if (op.is<Reg>())   { out_ += c("Reg", fg(dark_cyan));   }
-    if (op.is<Mem>())   { out_ += c("Mem", fg(dark_cyan));   }
-    if (op.is<Moffs>()) { out_ += c("Moffs", fg(dark_cyan)); }
-    if (op.is<Imm>())   { out_ += c("Imm", fg(dark_cyan));   }
-    out_ += StrRef{"\n"};
+    
+    out_ += line_prefix(is_last);
 
     indent_++;
     if (op.is<Reg>()) {
         const Reg& reg = op.as<Reg>();
 
+        out_ += c("Reg\n", fg(dark_cyan));
         out_ += line_prefix(/*is_last=*/true);
         out_ += fmt::format(" Id: {}, Kind: {}, Bit width: {} \n",
                 c_cyan(str_of_ri(reg.id_)),
@@ -908,6 +904,8 @@ void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
 
     if (op.is<Mem>()) {
         const Mem& mem = op.as<Mem>();
+
+        out_ += c("Mem\n", fg(dark_cyan));
         out_ += line_prefix(/*is_last*/true);
         out_ += fmt::format(" Base: {}, Index: {}, Scale: {}, Disp: {}, Bit width: {} \n",
                 c_cyan(mem.base_reg_ ? str_of_ri(mem.base_reg_.value().id_) : "None"),
@@ -920,6 +918,8 @@ void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
 
     if (op.is<Imm>()) {
         const Imm& imm = op.as<Imm>();
+            
+        out_ += c("Immediate\n", fg(dark_cyan));
         out_ += line_prefix(/*is_last*/true);
         out_ += fmt::format(" Value: {}, Bit width: {}\n",
                 c_cyan(std::to_string(imm.as<i64>())),
@@ -929,11 +929,11 @@ void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
     if (op.is<Moffs>()) {
         const Moffs& moffs = op.as<Moffs>();
 
+        out_ += c("Moffset\n", fg(dark_cyan));
         out_ += line_prefix(/*is_last*/true);
         out_ += fmt::format(" Address: {}, Bit width: {} \n",
                 fmt::format(fg(cyan), "{:#04x}", moffs.as_i64()),
                 c_cyan(str_of_bw(moffs.bit_width_)));
     }
-
     indent_--;
 }
