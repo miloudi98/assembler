@@ -3,12 +3,12 @@
 #include "lib/core.hh"
 #include "lib/front_end.hh"
 
-auto fiska::Location::source_text(Context* ctx) -> StrRef {
+auto fiska::Location::source_text(Context* ctx) const -> StrRef {
     File* file = ctx->get_file(fid_);
     return StrRef{file->data(), file->size()}.substr(pos_, len_);
 }
 
-auto fiska::Location::line_col_info(Context* ctx) -> LineColInfo {
+auto fiska::Location::line_col_info(Context* ctx) const -> LineColInfo {
     File* file = ctx->get_file(fid_);
     
     const char* file_start = file->data();
@@ -32,6 +32,16 @@ auto fiska::Location::line_col_info(Context* ctx) -> LineColInfo {
     }
 
     return info;
+}
+
+auto fiska::Location::merge(const Location& other) const -> Location {
+    assert(fid_ == other.fid_, "Trying to merge locations from two different files.");
+
+    return Location {
+        .pos_ = std::min(pos_, other.pos_),
+        .len_ = std::max(pos_ + len_, other.pos_ + other.len_) - std::min(pos_, other.pos_),
+        .fid_ = fid_
+    };
 }
 
 auto fiska::Context::get_file(u16 fid) -> File* {

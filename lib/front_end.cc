@@ -110,7 +110,7 @@ auto operator>>=(const Opt<T>& me, const Opt<X86Op>& you) -> Opt<X86Op> {
 
 // Credit to llvm: https://llvm.org/doxygen/StringRef_8cpp_source.html
 // Returns |std::nullopt| if an overflow occurs.
-auto i64_of_str(StrRef str) -> Opt<i64> {
+[[nodiscard]] auto i64_of_str(StrRef str) -> Opt<i64> {
     bool is_negative = str.starts_with('-');
 
     if (str.starts_with('+') or str.starts_with('-')) {
@@ -164,8 +164,24 @@ auto i64_of_str(StrRef str) -> Opt<i64> {
     return static_cast<i64>(is_negative ? -ret : ret);
 }
 
-auto i64_of_str_unchecked(StrRef str) -> i64 {
-    return i64_of_str(str).value();
+[[nodiscard]] auto i64_of_str_or_report_error(Context* ctx, Location loc, StrRef str) -> i64 {
+    Opt<i64> integer = i64_of_str(str);
+    // Signed overflow.
+    // Occurs when numbers are lower than i64::MIN.
+    if (not integer) {
+        Error err {
+            .kind_ = ErrKind::NumberOverflow,
+            .ctx_ = ctx,
+            .loc_ = loc,
+            .data_ = { .overflowed_num_ = str }
+        };
+        report_error(err,
+                "Integer too big to fit in 64-bits. 64-bit integers are within [{}, {}].",
+                std::numeric_limits<i64>::min(), std::numeric_limits<i64>::max());
+
+    }
+
+    return integer.value();
 }
 
 auto scale_of_i64(i64 scale) -> Mem::Scale {
@@ -383,17 +399,11 @@ void fiska::Lexer::lex_hex_digit() {
     tok().kind_ = TK::Num;
     tok().str_ = mod_->strings_.save(StrRef{hex_num_start, u32(curr_ - hex_num_start - 1)});
 
-    // Report overflow.
-    if (not i64_of_str(tok().str_)) {
-        tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
-        Error err {
-            .kind_ = ErrKind::NumberOverflow,
-            .ctx_ = mod_->ctx_,
-            .loc_ = tok().loc_,
-            .data_ = { .overflowed_num_ = tok().str_ }
-        };
-        report_error(err, "Number too big to fit in 64-bits");
-    }
+    Location loc = tok().loc_;
+    loc.len_ = u32(file_offset() - tok().loc_.pos_);
+
+    // Check for overflow.
+    std::ignore = i64_of_str_or_report_error(mod_->ctx_, loc, tok().str_);
 }
 
 void fiska::Lexer::lex_digit() {
@@ -412,7 +422,7 @@ void fiska::Lexer::lex_digit() {
             .loc_ = tok().loc_,
             .data_ = { .overflowed_num_ = tok().str_ }
         };
-        report_error(err, "Number too big to fit in 64-bits.");
+        report_error(err, "Integer too big to fit in 64-bits.");
     }
 }
 
@@ -431,25 +441,25 @@ void fiska::Lexer::lex_ident() {
 
 auto fiska::Tok::spelling(TK kind) -> StrRef {
     switch (kind) {
-    case TK::LParen: return "<(>";
-    case TK::RParen: return "<)>";
-    case TK::LBrace: return "<{>";
-    case TK::RBrace: return "<}>";
-    case TK::LBracket: return "<[>";
-    case TK::RBracket: return "<]>";
-    case TK::At: return "<@>";
-    case TK::SemiColon: return "<;>";
-    case TK::Colon: return "<:>";
-    case TK::Comma: return "<,>";
-    case TK::Plus: return "<+>";
-    case TK::Minus: return "<->";
-    case TK::Ident: return "<IDENTIFIER>";
-    case TK::Num: return "<NUMBER>";
-    case TK::BitWidth: return "<BIT_WIDTH>";
-    case TK::Fn: return "<FN>";
-    case TK::Reg: return "<REG>";
-    case TK::Mnemonic: return "<MNEMONIC>";
-    case TK::Eof: return "<EOF>";
+    case TK::LParen: return "(";
+    case TK::RParen: return ")";
+    case TK::LBrace: return "{";
+    case TK::RBrace: return "}";
+    case TK::LBracket: return "[";
+    case TK::RBracket: return "]";
+    case TK::At: return "@";
+    case TK::SemiColon: return ";";
+    case TK::Colon: return ":";
+    case TK::Comma: return ",";
+    case TK::Plus: return "+";
+    case TK::Minus: return "-";
+    case TK::Ident: return "IDENTIFIER";
+    case TK::Num: return "NUMBER";
+    case TK::BitWidth: return "BIT_WIDTH";
+    case TK::Fn: return "FN";
+    case TK::Reg: return "REG";
+    case TK::Mnemonic: return "MNEMONIC";
+    case TK::Eof: return "EOF";
     } // switch
     unreachable();
 }
@@ -565,9 +575,10 @@ auto fiska::Parser::try_parse_x86_operand<Imm>() -> Opt<Imm> {
 
     return Imm {
         .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
-        // SAFETY: This will never panic because we check for overflow when lexing the
-        // number.
-        .inner_ = i64_of_str_unchecked(has_sign ? concat_str_refs(prev(1).str_, prev().str_) : prev().str_)
+        .inner_ = i64_of_str_or_report_error(
+                mod_->ctx_,
+                has_sign ? prev().loc_.merge(prev(1).loc_) : prev().loc_,
+                has_sign ? concat_str_refs(Tok::spelling(prev(1).kind_), prev().str_) : prev().str_)
     };
 }
 
@@ -582,7 +593,7 @@ auto fiska::Parser::try_parse_x86_operand<Moffs>() -> Opt<Moffs> {
         .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
         // SAFETY: This will never panic because we check for overflow when lexing the 
         // number.
-        .inner_ = i64_of_str_unchecked(prev().str_)
+        .inner_ = i64_of_str(prev().str_).value()
     };
 }
 
@@ -600,6 +611,7 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
     Opt<i64> mem_disp{std::nullopt};
 
     expect(TK::LBracket);
+    // Has base register.
     if (consume(TK::Reg)) {
         base_reg = Reg {
             // All registers used to address memory in 64-bit mode are 64-bit wide.
@@ -619,13 +631,13 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
         };
 
         // Illegal memory reference scale.
-        i64 raw_scale = i64_of_str_unchecked(prev(4).str_);
+        i64 raw_scale = i64_of_str(prev(4).str_).value();
         if (not is<1LL, 2LL, 4LL, 8LL>(raw_scale)) {
             Error err {
                 .kind_ = ErrKind::IllegalValue,
                 .ctx_ = mod_->ctx_,
                 .loc_ = prev(4).loc_,
-                .data_ = { .illegal_num_ = raw_scale }
+                .data_ = { .illegal_lxm_ = prev(4).str_ }
             };
             report_error(err, "'{}' is not a legal index scale. Valid scales are '[1, 2, 4, 8]'.", raw_scale);
         }
@@ -633,20 +645,24 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
     }
 
     // Has displacement
-    if (consume(TK::Plus, TK::Minus) and consume(TK::Num)) {
-        mem_disp = i64_of_str_unchecked(concat_str_refs(prev(1).str_, prev().str_));
+    if (at(TK::Plus, TK::Minus)) {
+        expect_either(TK::Plus, TK::Minus);
+        expect(TK::Num);
+
+        Str mem_disp_lxm = concat_str_refs(Tok::spelling(prev(1).kind_), prev().str_);
+
+        mem_disp = i64_of_str_or_report_error(
+                mod_->ctx_,
+                prev().loc_.merge(prev(1).loc_),
+                mem_disp_lxm
+        );
 
         if (not utils::fits_in_b32(mem_disp.value())) {
-            Location sign_and_number_merged_loc {
-                .pos_ = prev(1).loc_.pos_,
-                .len_ = prev().loc_.pos_ + prev().loc_.len_ - prev(1).loc_.pos_,
-                .fid_ = fid_,
-            };
             Error err {
                 .kind_ = ErrKind::IllegalValue,
                 .ctx_ = mod_->ctx_,
-                .loc_ = sign_and_number_merged_loc,
-                .data_ = { .illegal_num_ = mem_disp.value() }
+                .loc_ = prev().loc_.merge(prev(1).loc_),
+                .data_ = { .illegal_lxm_ = mem_disp_lxm }
             };
             report_error(err, "memory reference displacement can't exceed 32-bits.");
         }
@@ -654,7 +670,21 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
 
     // Ill formed memory reference encountered.
     if (not (base_reg or index_reg or mem_disp)) {
-        todo("Ill-formed memory reference. User error message is still not yet implemented");
+        // Keep merging the locations until we find an '@' designating
+        // the start of the memory reference expression.
+        Location loc{prev().loc_};
+        u32 idx = 1;
+        while (prev(idx).kind_ != TK::At) { loc = loc.merge(prev(idx++).loc_); }
+        // Merge the '@' token.
+        loc = loc.merge(prev(idx).loc_);
+
+        Error err {
+            .kind_ = ErrKind::IllegalStmt,
+            .ctx_ = mod_->ctx_,
+            .loc_ = loc
+        };
+        // TODO(miloudi): Add an example of the memory reference syntax to the user.
+        report_error(err, "Invalid memory reference.");
     }
 
     return Mem {
@@ -672,9 +702,27 @@ auto fiska::Parser::parse_x86_operand() -> X86Op {
         >>= try_parse_x86_operand<Mem>()
         >>= try_parse_x86_operand<Moffs>();
 
-    // What error should we report?
-    assert(op.has_value(),
-            "Parse error. TODO: report the error properly instead of asserting");
+    // TODO(miloudi): Error handling should probably not be here since we don't really have
+    // any context of what instruction we're currently parsing. This limits the amount of
+    // information we can give as an error message.
+    // It's good enough for now, but this needs to change later.
+    if (not op) {
+        Location loc{tok().loc_};
+        // Keep merging the location of the lexemes until we find a ','.
+        // Report the whole set of tokens as an invalid start of a known operand.
+        while (not at(TK::Comma, TK::RParen, TK::SemiColon, TK::Eof)) {
+            loc = loc.merge(tok().loc_);
+            next_tok();
+        }
+
+        Error err {
+            .kind_ = ErrKind::IllegalStmt,
+            .ctx_ = mod_->ctx_,
+            .loc_ = loc
+        };
+        report_error(err, "Expression does not start any of the known operands "
+                "[ 'Register', 'Immediate', 'Memory reference', 'Memory offset' ].");
+    }
 
     return op.value();
 }
@@ -682,7 +730,5 @@ auto fiska::Parser::parse_x86_operand() -> X86Op {
 
 void fiska::Parser::parse_file_into_module(File* file, Module* mod) {
     Parser p{file, mod};
-    while (p.tok().kind_ != TK::Eof) {
-        p.parse_proc_expr();
-    }
+    while (p.tok().kind_ != TK::Eof) { p.parse_proc_expr(); }
 }

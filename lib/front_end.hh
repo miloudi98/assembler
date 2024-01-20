@@ -112,6 +112,7 @@ enum struct ErrKind {
     UnexpectedTok,
     NumberOverflow,
     IllegalValue,
+    IllegalStmt,
 };
 
 struct Tok {
@@ -130,7 +131,7 @@ struct Error {
         char c_;
         TK tok_kind_;
         StrRef overflowed_num_;
-        i64 illegal_num_;
+        StrRef illegal_lxm_;
     } data_{};
 };
 
@@ -360,7 +361,7 @@ template <typename... Args>
             Opt<fmt::text_style> style = std::nullopt)
     {
         fmt::text_style text_style = style.value_or(static_cast<fmt::emphasis>(0));
-        for (const char* ptr = beg; ptr != end; ++ptr) {
+        for (const char* ptr = beg; ptr < end; ++ptr) {
             fmt::print(text_style, "{}", c.value_or(*ptr));
         }
     };
@@ -386,11 +387,15 @@ template <typename... Args>
         break;
     }
     case ErrKind::NumberOverflow: {
-        fmt::print(bold | fg(light_gray), "Number overflow when converting number: '{}'.", err.data_.overflowed_num_);
+        fmt::print(bold | fg(light_gray), "Integer overflow encountered when converting: '{}'.", err.data_.overflowed_num_);
         break;
     }
     case ErrKind::IllegalValue: {
-        fmt::print(bold | fg(light_gray), "Illegal value encountered: '{}'.", err.data_.illegal_num_);
+        fmt::print(bold | fg(light_gray), "Illegal value encountered: '{}'.", err.data_.illegal_lxm_);
+        break;
+    }
+    case ErrKind::IllegalStmt: {
+        fmt::print(bold | fg(light_gray), "Ill-formed statement encountered.");
         break;
     }
     } // switch
@@ -404,6 +409,10 @@ template <typename... Args>
     StrRef problematic_range = StrRef{error_pos, err.loc_.len_};
 
     print_ptr_range(info.line_start_, error_pos); 
+    // TODO(miloudi): Underlining the problematic range is a complete mess when the range
+    // contains multiple lines. Split the problematic range by lines. Print each line on its
+    // own and underline it in the next one. Before you print each new line make sure to leave
+    // space for the line number + vertical bar. 
     fmt::print(fg(red) | bold, "{}", problematic_range);
     print_ptr_range(error_pos + err.loc_.len_, info.line_end_);
     fmt::print("\n");
@@ -415,8 +424,14 @@ template <typename... Args>
     print_repeated(' ',/*side_bar_size=*/utils::number_width(info.line_) + std::strlen(" | "));
 
     print_ptr_range(info.line_start_, error_pos, ' ');
+
     assert(err.loc_.len_ >= 1, "Unsigned integer overflow detected.");
-    fmt::print(fg(red) | bold, "^"); print_repeated('~', err.loc_.len_ - 1, bold | fg(red));
+    fmt::print(fg(red) | bold, "^");
+    // TODO(miloudi): This does not work well with problematic_ranges that span multiple lines.
+    // We simply print len(problematic_range) '~' without taking into account the new lines which is
+    // really bad.
+    print_repeated('~', err.loc_.len_ - 1, bold | fg(red));
+
     fmt::print(fg(medium_slate_blue) | bold, " {}", fmt::format(fmt, std::forward<Args>(args)...));
     fmt::print("\n");
 
@@ -455,7 +470,7 @@ struct Parser {
     [[noreturn]] void expect_error_handler(std::same_as<TK> auto... tok_kind) {
         Str token_spelling_list{};
         auto helper = [&](TK tok_kind) {
-            token_spelling_list += fmt::format("{}, ", Tok::spelling(tok_kind));
+            token_spelling_list += fmt::format("'{}', ", Tok::spelling(tok_kind));
         };
         (helper(tok_kind), ...);
 
@@ -469,8 +484,8 @@ struct Parser {
             .loc_ = tok().loc_,
             .data_ = { .tok_kind_ = tok().kind_ }
         };
-        report_error(err, "was expecting the following tokens '{}' but found '{}' instead.",
-                fmt::format("[{}]", token_spelling_list), Tok::spelling(err.data_.tok_kind_));
+        report_error(err, "was expecting the following tokens {} but found '{}' instead.",
+                fmt::format("[ {} ]", token_spelling_list), Tok::spelling(err.data_.tok_kind_));
     }
 
     auto parse_proc_expr() -> Expr*;
@@ -481,9 +496,9 @@ struct Parser {
     auto try_parse_x86_operand() -> Opt<Type>;
 
     auto match_next_toks(std::same_as<TK> auto... tok_tys) -> bool {
-        u32 lookbehind = 0;
+        u32 lookahead = 0;
         auto match_tok = [&](TK tok_kind) {
-            return peek_tok(lookbehind++).kind_ == tok_kind;
+            return peek_tok(lookahead++).kind_ == tok_kind;
         };
         
         return (match_tok(tok_tys) and ...);

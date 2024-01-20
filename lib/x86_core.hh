@@ -52,8 +52,9 @@ struct Location {
     u32 len_{};
     u16 fid_{};
 
-    auto source_text(Context* ctx) -> StrRef;
-    auto line_col_info(Context* ctx) -> LineColInfo;
+    auto source_text(Context* ctx) const -> StrRef;
+    auto line_col_info(Context* ctx) const -> LineColInfo;
+    auto merge(const Location& other) const -> Location;
 };
 
 
