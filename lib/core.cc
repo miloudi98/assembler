@@ -25,17 +25,14 @@ auto print_stack_trace() -> void {
     free(strings);
 }
 
-template <typename T, typename... Ts>
-concept isa = (std::same_as<T, Ts> or ...);
-
 template <typename T>
-requires isa<T, u8, u16, u32>
+requires OneOf<T, u8, u16, u32>
 auto fits_in_unsigned(i64 num) -> bool {
     return num >= 0 and num <= std::numeric_limits<T>::max();
 }
 
 template <typename T>
-requires isa<T, i8, i16, i32>
+requires OneOf<T, i8, i16, i32>
 auto fits_in_signed(i64 num) -> bool {
     return num >= std::numeric_limits<T>::min() 
         and num <= std::numeric_limits<T>::max();
