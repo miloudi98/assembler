@@ -444,12 +444,11 @@ template <typename... Args>
 
     print_ptr_range(info.line_start_, error_pos, ' ');
 
-    assert(err.loc_.len_ >= 1, "Unsigned integer overflow detected.");
     fmt::print(fg(red) | bold, "^");
     // TODO(miloudi): This does not work well with problematic_ranges that span multiple lines.
     // We simply print len(problematic_range) '~' without taking into account the new lines which is
     // really bad.
-    print_repeated('~', err.loc_.len_ - 1, bold | fg(red));
+    print_repeated('~', std::max<u32>(1, err.loc_.len_) - 1, bold | fg(red));
 
     fmt::print(fg(medium_slate_blue) | bold, " {}", fmt::format(fmt, std::forward<Args>(args)...));
     fmt::print("\n");
@@ -556,6 +555,25 @@ struct ModulePrinter {
     void print(X86Instruction* instruction, bool is_last);
     void print(const X86Op& op, bool is_last);
     static void print_module(Module* mod);
+};
+
+struct Assembler {
+    ByteVec out_{};
+
+    Assembler() {}
+    // No copies or moves allowed.
+    Assembler(const Assembler&) = delete;
+    Assembler(Assembler&&) = delete;
+    Assembler& operator=(const Assembler&) = delete;
+    Assembler& operator=(Assembler&&) = delete;
+
+    void emit(BW bw, u64 qword);
+    void emit(ByteVec byte_vec);
+
+    template <X86IK ik>
+    void register_instruction() {
+        static_assert(false and "Unsupported instruction.");
+    }
 };
 
 }  // namespace fiska

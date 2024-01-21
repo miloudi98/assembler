@@ -218,6 +218,117 @@ auto operator+=(ModulePrinter::UTF32Str& me, const Container& other) -> ModulePr
 template <typename T>
 consteval auto is_top_level_expr() -> bool { return OneOf<T, ProcExpr>; }
 
+template <auto... args>
+struct r;
+
+template <auto... args>
+struct m;
+
+template <auto... args>
+struct i;
+
+template <auto... args>
+struct mo;
+
+template <BW bit_width>
+struct r<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>() 
+            and op.as<Reg>().bit_width_ == bit_width
+            and op.as<Reg>().kind() == RK::Gp;
+    }
+};
+
+template <BW bit_width, RK kind>
+struct r<bit_width, kind> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>()
+            and op.as<Reg>().bit_width_ == bit_width 
+            and op.as<Reg>().kind() == kind;
+    }
+};
+
+template <BW bit_width, RI id>
+struct r<bit_width, id> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>()
+            and op.as<Reg>().bit_width_ == bit_width 
+            and op.as<Reg>().id_ == id;
+    }
+};
+
+template <BW bit_width>
+struct m<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Mem>() 
+            and op.as<Mem>().bit_width_ == bit_width;
+    }
+};
+
+template <BW bit_width>
+struct i<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Imm>() 
+            and op.as<Imm>().bit_width_ == bit_width;
+    }
+};
+
+template <BW bit_width>
+struct mo<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Moffs>() 
+            and op.as<Moffs>().bit_width_ == bit_width;
+    }
+};
+
+template <typename... Types>
+struct Any {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return (Types::match(op) or ...);
+    }
+};
+
+template <typename... Ts>
+struct ModRm;
+
+template <>
+struct ModRm<r<>, r<>> {
+    static auto constexpr value(const Reg& dst, const Reg& src) -> u8 {
+        return 0;
+    }
+};
+
+template <>
+struct ModRm<r<>, m<>> {
+};
+
+template <>
+struct ModRm<m<>, r<>> {
+};
+
+template <u8 sz>
+struct slash {
+    static constexpr u8 digit = sz;
+};
+
+template <u8 digit>
+struct ModRm<slash<digit>, r<>>;
+
+template <typename... Args>
+struct EmitPattern;
+
+template <>
+struct EmitPattern<r<>, r<>> {
+};
+
+template <>
+struct EmitPattern<r<>, m<>> {
+};
+
+template <>
+struct EmitPattern<m<>, r<>> {
+};
+
 }  // namespace
 
 auto fiska::str_of_bw(BW bit_width) -> StrRef {
@@ -414,9 +525,10 @@ void fiska::Lexer::next_tok_helper() {
             lex_ident();
             break;
         }
+
+        // Unrecognized char.
         // Eat the unrecognized char in order to show the right error message to the user.
         next_c();
-
         tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
         Error err {
             .kind_ = ErrKind::UnrecognizedChar, 
@@ -427,6 +539,7 @@ void fiska::Lexer::next_tok_helper() {
         report_error(err, "Expected thet start of an identifier but found '{}' instead.", c_);
     }
     }  // switch
+
     tok().loc_.len_ = u32(file_offset() - tok().loc_.pos_);
 }
 
@@ -936,4 +1049,44 @@ void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
                 c_cyan(str_of_bw(moffs.bit_width_)));
     }
     indent_--;
+}
+
+void fiska::Assembler::emit(BW bw, u64 qword) {
+    switch (bw) {
+    case BW::B8: {
+        out_.push_back(u8(qword >> 0) & 0xff);
+        break;
+    }
+    case BW::B16: {
+        out_.push_back(u8(qword >> 0) & 0xff);
+        out_.push_back(u8(qword >> 8) & 0xff);
+        break;
+    }
+    case BW::B32: {
+        out_.push_back(u8(qword >> 0) & 0xff);
+        out_.push_back(u8(qword >> 8) & 0xff);
+        out_.push_back(u8(qword >> 16) & 0xff);
+        out_.push_back(u8(qword >> 24) & 0xff);
+        break;
+    }
+    case BW::B64: {
+        out_.push_back(u8(qword >> 0) & 0xff);
+        out_.push_back(u8(qword >> 8) & 0xff);
+        out_.push_back(u8(qword >> 16) & 0xff);
+        out_.push_back(u8(qword >> 24) & 0xff);
+        out_.push_back(u8(qword >> 32) & 0xff);
+        out_.push_back(u8(qword >> 40) & 0xff);
+        out_.push_back(u8(qword >> 48) & 0xff);
+        out_.push_back(u8(qword >> 56) & 0xff);
+        break;
+    }
+    } // switch
+}
+
+void fiska::Assembler::emit(ByteVec byte_vec) {
+    out_.insert(out_.end(), byte_vec.begin(), byte_vec.end());
+}
+
+template <>
+void fiska::Assembler::register_instruction<X86IK::Mov>() {
 }
