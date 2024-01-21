@@ -223,8 +223,7 @@ struct X86Op {
 };
 
 template <typename T>
-concept IsX86Op = std::same_as<T, Reg> or std::same_as<T, Imm>
-               or std::same_as<T, Mem> or std::same_as<T, Moffs>;
+concept IsX86Op = OneOf<T, Reg, Mem, Moffs, Imm>;
 
 // All |X86Instruction|s and all its derived structs are owned
 // by the procedure containing them.
