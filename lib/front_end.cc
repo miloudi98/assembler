@@ -3,6 +3,7 @@
 #include "lib/core.hh"
 
 #include <cctype>
+#include <algorithm>
 
 namespace {
 
@@ -218,123 +219,13 @@ auto operator+=(ModulePrinter::UTF32Str& me, const Container& other) -> ModulePr
 template <typename T>
 consteval auto is_top_level_expr() -> bool { return OneOf<T, ProcExpr>; }
 
-template <auto... args>
-struct r;
-
-template <auto... args>
-struct m;
-
-template <auto... args>
-struct i;
-
-template <auto... args>
-struct mo;
-
-template <BW bit_width>
-struct r<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Reg>() 
-            and op.as<Reg>().bit_width_ == bit_width
-            and op.as<Reg>().kind() == RK::Gp;
-    }
-};
-
-template <BW bit_width, RK kind>
-struct r<bit_width, kind> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Reg>()
-            and op.as<Reg>().bit_width_ == bit_width 
-            and op.as<Reg>().kind() == kind;
-    }
-};
-
-template <BW bit_width, RI id>
-struct r<bit_width, id> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Reg>()
-            and op.as<Reg>().bit_width_ == bit_width 
-            and op.as<Reg>().id_ == id;
-    }
-};
-
-template <BW bit_width>
-struct m<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Mem>() 
-            and op.as<Mem>().bit_width_ == bit_width;
-    }
-};
-
-template <BW bit_width>
-struct i<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Imm>() 
-            and op.as<Imm>().bit_width_ == bit_width;
-    }
-};
-
-template <BW bit_width>
-struct mo<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Moffs>() 
-            and op.as<Moffs>().bit_width_ == bit_width;
-    }
-};
-
-template <typename... Types>
-struct Any {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return (Types::match(op) or ...);
-    }
-};
-
-template <typename... Ts>
-struct ModRm;
-
-template <>
-struct ModRm<r<>, r<>> {
-    static auto constexpr value(const Reg& dst, const Reg& src) -> u8 {
-        return 0;
-    }
-};
-
-template <>
-struct ModRm<r<>, m<>> {
-};
-
-template <>
-struct ModRm<m<>, r<>> {
-};
-
-template <u8 sz>
-struct slash {
-    static constexpr u8 digit = sz;
-};
-
-template <u8 digit>
-struct ModRm<slash<digit>, r<>>;
-
-template <typename... Args>
-struct EmitPattern;
-
-template <>
-struct EmitPattern<r<>, r<>> {
-};
-
-template <>
-struct EmitPattern<r<>, m<>> {
-};
-
-template <>
-struct EmitPattern<m<>, r<>> {
-};
-
 }  // namespace
 
 auto fiska::str_of_bw(BW bit_width) -> StrRef {
     switch (bit_width) {
     case BW::B8: return "b8";
     case BW::B16: return "b16";
+    case BW::B24: return "b24";
     case BW::B32: return "b32";
     case BW::B64: return "b64";
     } // switch
@@ -627,6 +518,75 @@ void fiska::Lexer::lex_file_into_module(File* file, Module* mod) {
     while (lxr.tok().kind_ != TK::Eof) { lxr.next_tok(); }
 }
 
+auto fiska::X86Op::bit_width() const -> BW {
+    if (is<Reg>())   { return as<Reg>().bit_width_;   }
+    if (is<Mem>())   { return as<Mem>().bit_width_;   }
+    if (is<Imm>())   { return as<Imm>().bit_width_;   }
+    if (is<Moffs>()) { return as<Moffs>().bit_width_; }
+    unreachable("Unrecognized x86 operand.");
+}
+
+auto fiska::X86Op::modrm_mod() const -> u8 {
+    using enum RI;
+    assert((is<Reg, Mem>()), "Trying to encode a 'Memory offset' or an 'Immediate' in the ModRm.");
+
+    if (is<Reg>()) { return Mem::kmod_reg; }
+
+    const Mem& mem = as<Mem>();
+
+    auto mod_based_on_disp = [](i64 disp) {
+        return utils::fits_in_b8(disp) 
+            ? Mem::kmod_mem_disp8 
+            : Mem::kmod_mem_disp32;
+    };
+
+    switch (mem.kind()) {
+    case MK::BaseIndexDisp: {
+        assert(mem.base_reg_.has_value());
+
+        assert(not ::is<Rip>(mem.base_reg_->id_), 
+                "Rip can't used as a memory reference base register "
+                "when an index register is present.");
+
+        [[fallthrough]];
+    }
+    case MK::BaseDisp: {
+        if (::is<Rbp, R13>(mem.base_reg_->id_)) { return mod_based_on_disp(mem.disp_.value_or(0)); }
+        if (not mem.disp_ or ::is<Rip>(mem.base_reg_->id_)) { return Mem::kmod_mem; }
+        return mod_based_on_disp(mem.disp_.value());
+    }
+    case MK::IndexDisp:
+    case MK::DispOnly: {
+        return Mem::kmod_mem;
+    }
+    } // switch 
+    unreachable();
+}
+
+auto fiska::X86Op::modrm_encoding() const -> u8 {
+    using enum RI;
+
+    assert((is<Reg, Mem>()), "Trying to encode a 'Memory offset' or an 'Immediate' in the ModRm.");
+
+    if (is<Reg>()) { return as<Reg>().index(); }
+
+    const Mem& mem = as<Mem>();
+    switch (mem.kind()) {
+    case MK::BaseDisp: {
+        assert(mem.base_reg_.has_value());
+
+        return ::is<Rsp, R12>(mem.base_reg_->id_) 
+            ? Mem::ksib_marker
+            : mem.base_reg_->index();
+    }
+    case MK::BaseIndexDisp:
+    case MK::IndexDisp: 
+    case MK::DispOnly: {
+        return Mem::ksib_marker;
+    }
+    } // switch
+    unreachable();
+}
 
 void* fiska::Expr::operator new(usz sz, Module* mod, bool is_top_level_expr) {
     auto expr = static_cast<Expr*>(::operator new(sz));
@@ -1051,7 +1011,7 @@ void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
     indent_--;
 }
 
-void fiska::Assembler::emit(BW bw, u64 qword) {
+auto fiska::ByteStream::append(BW bw, u64 qword) -> ByteStream& {
     switch (bw) {
     case BW::B8: {
         out_.push_back(u8(qword >> 0) & 0xff);
@@ -1060,6 +1020,12 @@ void fiska::Assembler::emit(BW bw, u64 qword) {
     case BW::B16: {
         out_.push_back(u8(qword >> 0) & 0xff);
         out_.push_back(u8(qword >> 8) & 0xff);
+        break;
+    }
+    case BW::B24: {
+        out_.push_back(u8(qword >> 0) & 0xff);
+        out_.push_back(u8(qword >> 8) & 0xff);
+        out_.push_back(u8(qword >> 16) & 0xff);
         break;
     }
     case BW::B32: {
@@ -1081,12 +1047,145 @@ void fiska::Assembler::emit(BW bw, u64 qword) {
         break;
     }
     } // switch
+    return *this;
 }
 
-void fiska::Assembler::emit(ByteVec byte_vec) {
+auto fiska::ByteStream::append(ByteVec byte_vec) -> ByteStream& {
     out_.insert(out_.end(), byte_vec.begin(), byte_vec.end());
+    return *this;
 }
+
+namespace {
+
+// X86 Instruction patterns.
+
+using r8 = r<BW::B8>;
+using r16 = r<BW::B16>;
+using r32 = r<BW::B32>;
+using r64 = r<BW::B64>;
+using sreg = r<BW::B16, RK::Seg>;
+
+using m8 = m<BW::B8>;
+using m16 = m<BW::B16>;
+using m32 = m<BW::B32>;
+using m64 = m<BW::B64>;
+
+template <BW w>
+using rm = Any<r<w>, m<w>>;
+
+using rm8 = rm<BW::B8>;
+using rm16 = rm<BW::B16>;
+using rm32 = rm<BW::B32>;
+using rm64 = rm<BW::B64>;
+
+using moffs8 = mo<BW::B8>;
+using moffs16 = mo<BW::B16>;
+using moffs32 = mo<BW::B32>;
+using moffs64 = mo<BW::B64>;
+
+} // namespace
 
 template <>
 void fiska::Assembler::register_instruction<X86IK::Mov>() {
+    using enum BW;
+    using enum RI;
+    using enum OpEn;
+
+    Vec<InstrExpr>& mov = git_[X86IK::Mov];
+
+    // 0x88 MOV r/m8, r8 -- MR
+    mov.push_back(
+        InstrExpr{
+            {0x88},
+            Pat<rm8, r8>{},
+            Emitter<MR>{}
+        }
+    );
+
+    // 0x89 MOV r/m16, r16 -- MR
+    // 0x89 MOV r/m32, r32 -- MR
+    // 0x89 MOV r/m64, r64 -- MR
+    mov.push_back(
+        InstrExpr {
+            {0x89},
+            Or<
+                Pat<rm16, r16>,
+                Pat<rm32, r32>,
+                Pat<rm64, r64>
+            >{},
+            Emitter<MR>{}
+        }
+    );
+
+    // 0x8A MOV r8, r/m8 -- RM
+    mov.push_back(
+        InstrExpr {
+            {0x8a},
+            Pat<r8, rm8>{},
+            Emitter<RM>{}
+        }
+    );
+
+    // 0x8B MOV r16, r/m16 -- RM
+    // 0x8B MOV r32, r/m32 -- RM
+    // 0x8B MOV r64, r/m64 -- RM
+    mov.push_back(
+        InstrExpr {
+            {0x8b},
+            Or<
+                Pat<r16, rm16>,
+                Pat<r32, rm32>,
+                Pat<r64, rm64>
+            >{},
+            Emitter<RM>{}
+        }
+    );
+
+    // 0x8C MOV r/m16, Sreg       -- MR
+    // 0x8C MOV r16/r32/m16, Sreg -- MR
+    // 0x8C MOV r64/m16, Seg      -- MR
+    mov.push_back(
+        InstrExpr {
+            {0x8c},
+            Pat<Any<rm16, r32, r64>, sreg>{},
+            Emitter<MR>{}
+        }
+    );
+
+    // 0x8E MOV Sreg, r/m16 -- RM
+    // 0x8E MOV Sreg, r/m64 -- RM
+    mov.push_back(
+        InstrExpr {
+            {0x8e},
+            Pat<sreg, Any<rm16, rm64>>{},
+            Emitter<RM>{}
+        }
+    );
+
+    // 0xA0 MOV AL, moffs8   -- FD
+    mov.push_back(
+        InstrExpr {
+            {0xa0},
+            Pat<r<B8, Rax>, moffs8>{},
+            Emitter<FD>{}
+        }
+    );
+
+    // 0xA1 MOV AX, moffs16  -- FD
+    // 0xA1 MOV EAX, moffs32 -- FD
+    // 0xA1 MOV RAX, moffs64 -- FD
+    mov.push_back(
+        InstrExpr {
+            {0xa1},
+            Or<
+                Pat<r<B16, Rax>, moffs16>,
+                Pat<r<B32, Rax>, moffs32>,
+                Pat<r<B64, Rax>, moffs64>
+            >{},
+            Emitter<FD>{}
+        }
+    );
+
+    // 0xA2 MOV moffs8, AL -- TD
+
 }

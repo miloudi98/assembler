@@ -19,6 +19,7 @@ enum struct X86IK {
 enum struct BW : u16 {
     B8 = 8,
     B16 = 16,
+    B24 = 24,
     B32 = 32,
     B64 = 64
 };
@@ -119,6 +120,12 @@ enum struct ErrKind {
     IllegalStmt,
 };
 
+enum struct OpEn {
+    MR,
+    RM,
+    FD
+};
+
 struct Tok {
     TK kind_{};
     StrRef str_{};
@@ -139,12 +146,47 @@ struct Error {
     } data_{};
 };
 
+union Sib {
+    struct {
+        u8 base: 3;
+        u8 index: 3;
+        u8 scale: 2;
+    };
+    u8 raw;
+};
+
+union ModRM {
+    struct {
+        u8 rm: 3;
+        u8 reg: 3;
+        u8 mod: 2;
+    };
+    u8 raw;
+};
+
+union Rex {
+    struct {
+        // Mod_Rm::r/m or Sib::Base extension or opcode extension.
+        u8 b: 1;
+        // Sib::Index extension.
+        u8 x: 1;
+        // Mod_Rm::reg extension.
+        u8 r: 1;
+        // Operand size override.
+        u8 w: 1;
+        u8 mod: 4 {0b0100}; 
+    };
+    u8 raw;
+
+    auto is_required() const -> bool { return b or x or r or w; }
+};
+
 struct Reg {
     BW bit_width_{};
     RI id_{};
 
     auto index() const -> u8 { return +id_ & 0x7; }
-    auto requires_extension() const -> bool {
+    auto requires_ext() const -> bool {
         return (+id_ >= +RI::R8 and +id_ <= +RI::R15)
             or (+id_ >= +RI::Cr8 and +id_ <= +RI::Cr15)
             or (+id_ >= +RI::Dbg8 and +id_ <= +RI::Dbg15);
@@ -180,7 +222,11 @@ struct Mem {
     Opt<Scale> scale_{std::nullopt};
     Opt<i64> disp_{std::nullopt};
 
-    [[nodiscard]] auto kind() -> MK {
+    [[nodiscard]] auto kind() const -> MK {
+        todo();
+    }
+
+    [[nodiscard]] auto sib() const -> Opt<u8> {
         todo();
     }
 };
@@ -220,6 +266,10 @@ struct X86Op {
 
     template <typename T>
     auto as() const -> const T& { return std::get<T>(inner_); }
+
+    auto modrm_encoding() const -> u8;
+    auto modrm_mod() const -> u8;
+    auto bit_width() const -> BW;
 };
 
 template <typename T>
@@ -556,8 +606,248 @@ struct ModulePrinter {
     static void print_module(Module* mod);
 };
 
-struct Assembler {
+struct ByteStream {
     ByteVec out_{};
+
+    ByteStream() {}
+    // No copies or moves allowed.
+    ByteStream(const ByteStream&) = delete;
+    ByteStream(ByteStream&&) = delete;
+    ByteStream& operator=(const ByteStream&) = delete;
+    ByteStream& operator=(ByteStream&&) = delete;
+    
+    auto append(BW bw, u64 qword) -> ByteStream&;
+    auto append(ByteVec byte_vec) -> ByteStream&;
+
+    template <typename T>
+    auto append_if(const T& cond, BW width, u64 qword) -> ByteStream& {
+        if (not cond) { return *this; }
+        return append(width, qword);
+    }
+};
+
+// Concept identifying all the x86 operand classes below.
+template <typename T>
+concept IsX86OpClass = requires {
+    { T::match };
+};
+//concept IsX86OpClass = requires(T) {
+//    { T::match(X86Op{}) };
+//};
+//=====================================================
+// Register classes.
+//=====================================================
+template <auto... args>
+struct r;
+
+template <BW bit_width>
+struct r<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>() 
+            and op.as<Reg>().bit_width_ == bit_width
+            and op.as<Reg>().kind() == RK::Gp;
+    }
+};
+
+template <BW bit_width, RK kind>
+struct r<bit_width, kind> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>()
+            and op.as<Reg>().bit_width_ == bit_width 
+            and op.as<Reg>().kind() == kind;
+    }
+};
+
+template <BW bit_width, RI id>
+struct r<bit_width, id> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>()
+            and op.as<Reg>().bit_width_ == bit_width 
+            and op.as<Reg>().id_ == id;
+    }
+};
+
+//=====================================================
+// Memory classes.
+//=====================================================
+template <auto... args>
+struct m;
+
+template <BW bit_width>
+struct m<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Mem>() 
+            and op.as<Mem>().bit_width_ == bit_width;
+    }
+};
+
+//=====================================================
+// Immediate classes.
+//=====================================================
+template <auto... args>
+struct i;
+
+template <BW bit_width>
+struct i<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Imm>() 
+            and op.as<Imm>().bit_width_ == bit_width;
+    }
+};
+
+//=====================================================
+// Memory offset classes.
+//=====================================================
+template <auto... args>
+struct mo;
+
+template <BW bit_width>
+struct mo<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Moffs>() 
+            and op.as<Moffs>().bit_width_ == bit_width;
+    }
+};
+
+//====================================================================
+// X86OpClass Any combinator. 
+// This combinator will be satisfied if the X86Op passed
+// to it as an argument satisfies any of the X86OpClasses passed as 
+// template arguments.
+//====================================================================
+template <IsX86OpClass... X86OpClass>
+struct Any {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return (X86OpClass::match(op) or ...);
+    }
+};
+
+// Concept identifying x86 operand patterns.
+template <typename T>
+concept IsInstrPat = requires(T) {
+    { T::match(Span<const X86Op>{}) } -> std::same_as<bool>;
+};
+//====================================================================
+// Patterns of x86 operands. 
+//====================================================================
+template <typename... X86Ops>
+struct Pat {
+    static constexpr auto match(Span<const X86Op> ops) -> bool {
+        static constexpr usz pat_sz = sizeof...(X86Ops);
+        if (pat_sz != ops.size()) { return false; }
+
+        u64 op_idx = 0;
+        return (X86Ops::match(ops[op_idx++]) and ...);
+    }
+};
+
+//====================================================================
+// Or combinator of patterns.
+//====================================================================
+template <IsInstrPat... Pattern>
+struct Or {
+    static constexpr auto match(Span<const X86Op> ops) -> bool {
+        return (Pattern::match(ops) or ...);
+    }
+};
+
+//====================================================================
+// Emitters aka Instruction Encoding formats. 
+//====================================================================
+template <OpEn encoding>
+struct Emitter;
+
+template <>
+struct Emitter<OpEn::MR> {
+    GCC_DIAG_IGNORE_PUSH(-Wconversion)
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+        using enum BW;
+                       
+        assert(ops.size() == 2);
+
+        ByteStream bs{};
+
+        ModRM modrm {
+            .rm = ops[0].modrm_encoding(),
+            .reg = ops[1].modrm_encoding(),
+            // Cute hack.
+            .mod = std::min<u8>(ops[0].modrm_mod(), ops[1].modrm_mod()),
+        };
+
+        Rex rex {
+            .b = ops[0].is<Reg>() and ops[0].as<Reg>().requires_ext(),
+            .x = 0,
+            .r = ops[1].is<Reg>() and ops[1].as<Reg>().requires_ext(),
+            .w = std::max(+ops[0].bit_width(), +ops[1].bit_width()) == +BW::B64
+        };
+
+        Opt<u8> sib{std::nullopt};
+        Opt<i64> disp{std::nullopt};
+
+        if (ops[0].is<Mem>() or ops[1].is<Mem>()) {
+            const Mem& mem = ops[0].is<Mem>() ? ops[0].as<Mem>() : ops[1].as<Mem>();
+
+            sib = mem.sib();
+            disp = mem.disp_;
+
+            rex.b = mem.base_reg_ and mem.base_reg_->requires_ext();
+            rex.x = mem.index_reg_ and mem.index_reg_->requires_ext();
+        }
+
+        // TODO(miloudi): Insert the 16 bit operand prefix if needed.
+        bs.append_if(rex.is_required(), B8, rex.raw)
+          .append(std::move(opcode))
+          .append(B8, modrm.raw)
+          .append_if(sib, B8, *sib)
+          .append_if(disp, utils::fits_in_b8(*disp) ? B8 : B32, u64(*disp));
+
+        return bs.out_;
+    }
+    GCC_DIAG_IGNORE_POP();
+};
+
+template <>
+struct Emitter<OpEn::RM> {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+        assert(ops.size() == 2);
+        // Reverse the order of the operands and run the OpEn::MR routine.
+        return Emitter<OpEn::MR>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]});
+    }
+};
+
+template <>
+struct Emitter<OpEn::FD> {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+        todo();
+    }
+};
+
+// TODO(miloudi): Explain what this type does.
+struct InstrExpr {
+    using MatchFunction = bool(*)(Span<const X86Op>);
+    using EmitFunction = ByteVec(*)(ByteVec, Span<const X86Op>);
+
+    MatchFunction match_{};
+    EmitFunction emit_{};
+    ByteVec opcode_{};
+
+    template <typename Matcher, typename Emitter>
+    requires requires (Matcher, Emitter) {
+        { Matcher::match(Span<const X86Op>{}) } -> std::same_as<bool>;
+        { Emitter::emit(ByteVec{}, Span<const X86Op>{}) } -> std::same_as<ByteVec>;
+    }
+    InstrExpr(ByteVec opcode, Matcher, Emitter) : 
+            match_(Matcher::match), emit_(Emitter::emit), opcode_(opcode)
+    {}
+
+    auto match(Span<const X86Op> ops) -> bool { return match_(ops); }
+    auto emit(Span<const X86Op> ops) -> ByteVec { return emit_(opcode_, ops); }
+};
+
+struct Assembler {
+    ByteStream bs_{};
+    // Global instruction table.
+    static inline std::unordered_map<X86IK, Vec<InstrExpr>> git_;
 
     Assembler() {}
     // No copies or moves allowed.
@@ -566,13 +856,8 @@ struct Assembler {
     Assembler& operator=(const Assembler&) = delete;
     Assembler& operator=(Assembler&&) = delete;
 
-    void emit(BW bw, u64 qword);
-    void emit(ByteVec byte_vec);
-
     template <X86IK ik>
-    void register_instruction() {
-        static_assert(false and "Unsupported instruction.");
-    }
+    void register_instruction();
 };
 
 }  // namespace fiska

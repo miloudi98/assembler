@@ -5,6 +5,7 @@
 #include <memory>
 #include <algorithm>
 #include <unordered_set>
+#include <span>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -48,6 +49,9 @@ using Vec = std::vector<T>;
 
 template <typename T>
 using Opt = std::optional<T>;
+
+template <typename T>
+using Span = std::span<T>;
 
 using ByteVec = Vec<u8>;
 using StrRef = std::string_view;
