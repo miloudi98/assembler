@@ -765,6 +765,7 @@ struct Emitter<OpEn::MR> {
         using enum BW;
                        
         assert(ops.size() == 2);
+        assert((ops[0].is<Reg, Mem>() and ops[1].is<Reg>()));
 
         ByteStream bs{};
 
@@ -795,8 +796,9 @@ struct Emitter<OpEn::MR> {
             rex.x = mem.index_reg_ and mem.index_reg_->requires_ext();
         }
 
-        // TODO(miloudi): Insert the 16 bit operand prefix if needed.
-        bs.append_if(rex.is_required(), B8, rex.raw)
+        bs.append_if(is<B16>(ops[0].bit_width()) 
+                 or is<B16>(ops[1].bit_width()), B8, 0x66)
+          .append_if(rex.is_required(), B8, rex.raw)
           .append(std::move(opcode))
           .append(B8, modrm.raw)
           .append_if(sib, B8, *sib)
@@ -811,6 +813,8 @@ template <>
 struct Emitter<OpEn::RM> {
     static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
         assert(ops.size() == 2);
+        assert((ops[0].is<Reg>() and ops[1].is<Reg, Mem>()));
+
         // Reverse the order of the operands and run the OpEn::MR routine.
         return Emitter<OpEn::MR>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]});
     }
@@ -822,7 +826,7 @@ struct Emitter<OpEn::FD> {
         using enum BW;
 
         assert(ops.size() == 2);
-        assert(ops[0].is<Reg>() and ops[1].is<Moffs>());
+        assert((ops[0].is<Reg>() and ops[1].is<Moffs>()));
 
         ByteStream bs{};
 
@@ -830,7 +834,8 @@ struct Emitter<OpEn::FD> {
             .w = std::max(+ops[0].bit_width(), +ops[1].bit_width()) == +BW::B64
         };
 
-        bs.append_if(rex.is_required(), B8, rex.raw)
+        bs.append_if(is<B16>(ops[0].bit_width()), B8, 0x66)
+          .append_if(rex.is_required(), B8, rex.raw)
           .append(std::move(opcode))
           .append(B64, ops[1].as<Moffs>().as<u64>());
 
@@ -851,13 +856,37 @@ struct Emitter<OpEn::TD> {
 template <>
 struct Emitter<OpEn::OI> {
     static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
-        todo();
+        using enum BW; 
+
+        assert(ops.size() == 2);
+        assert((ops[0].is<Reg>() and ops[1].is<Imm>()));
+
+        ByteStream bs{};
+
+        Rex rex {
+            .b = ops[0].as<Reg>().requires_ext(), 
+            .w = is<B64>(ops[0].bit_width()),
+        };
+
+        opcode.back() |= ops[0].as<Reg>().index();
+
+        bs.append_if(is<B16>(ops[0].bit_width()), B8, 0x66)
+          .append_if(rex.is_required(), B8, rex.raw)
+          .append(std::move(opcode))
+          .append(ops[1].bit_width(), ops[1].as<Imm>().as<u64>());
+
+        return bs.out_;
     }
 };
 
 template <>
 struct Emitter<OpEn::MI> {
     static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+        using enum BW;
+
+        assert(ops.size() == 2);
+        assert((ops[0].is<Reg, Mem>() and ops[1].is<Imm>()));
+
         todo();
     }
 };
