@@ -1171,4 +1171,22 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     });
 
     // 0xA2 MOV moffs8, AL -- TD
+    mov.push_back({
+        {0xa2},
+        Pat<moffs8, r<B8, Rax>>{},
+        Emitter<TD>{}
+    });
+
+    // 0xA3 MOV moffs16, AX  -- TD
+    // 0xA3 MOV moffs32, EAX -- TD
+    // 0xA3 MOV moffs64, RAX -- TD
+    mov.push_back({
+        {0xa3},
+        Or<
+            Pat<moffs16, r<B16, Rax>>,
+            Pat<moffs32, r<B32, Rax>>,
+            Pat<moffs64, r<B64, Rax>>
+        >{},
+        Emitter<TD>{}
+    });
 }

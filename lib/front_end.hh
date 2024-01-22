@@ -124,7 +124,8 @@ enum struct OpEn {
     MR,
     RM,
     FD,
-    TD
+    TD,
+    OI
 };
 
 struct Tok {
@@ -843,6 +844,13 @@ struct Emitter<OpEn::TD> {
         assert(ops[0].is<Moffs>() and ops[1].is<Reg>());
 
         return Emitter<OpEn::FD>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]});
+    }
+};
+
+template <>
+struct Emitter<OpEn::TD> {
+    static constexpr auto emit(ByteVec opcode, Span<const X86op> ops) -> ByteVec {
+        todo();
     }
 };
 
