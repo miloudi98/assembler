@@ -125,7 +125,8 @@ enum struct OpEn {
     RM,
     FD,
     TD,
-    OI
+    OI,
+    MI
 };
 
 struct Tok {
@@ -848,8 +849,15 @@ struct Emitter<OpEn::TD> {
 };
 
 template <>
-struct Emitter<OpEn::TD> {
-    static constexpr auto emit(ByteVec opcode, Span<const X86op> ops) -> ByteVec {
+struct Emitter<OpEn::OI> {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+        todo();
+    }
+};
+
+template <>
+struct Emitter<OpEn::MI> {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
         todo();
     }
 };

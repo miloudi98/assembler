@@ -1083,6 +1083,11 @@ using moffs16 = mo<BW::B16>;
 using moffs32 = mo<BW::B32>;
 using moffs64 = mo<BW::B64>;
 
+using imm8 = i<BW::B8>;
+using imm16 = i<BW::B16>;
+using imm32 = i<BW::B32>;
+using imm64 = i<BW::B64>;
+
 } // namespace
 
 template <>
@@ -1094,99 +1099,59 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     Vec<InstrExpr>& mov = git_[X86IK::Mov];
 
     // 0x88 MOV r/m8, r8 -- MR
-    mov.push_back({
-        {0x88},
-        Pat<rm8, r8>{},
-        Emitter<MR>{}
-    });
+    mov.push_back({ {0x88}, Pat<rm8, r8>{}, Emitter<MR>{} });
 
     // 0x89 MOV r/m16, r16 -- MR
     // 0x89 MOV r/m32, r32 -- MR
     // 0x89 MOV r/m64, r64 -- MR
-    mov.push_back({
-        {0x89},
-        Or<
-            Pat<rm16, r16>,
-            Pat<rm32, r32>,
-            Pat<rm64, r64>
-        >{},
-        Emitter<MR>{}
-    });
+    mov.push_back({ {0x89}, Or< Pat<rm16, r16>, Pat<rm32, r32>, Pat<rm64, r64> >{}, Emitter<MR>{} });
 
     // 0x8A MOV r8, r/m8 -- RM
-    mov.push_back({
-        {0x8a},
-        Pat<r8, rm8>{},
-        Emitter<RM>{}
-    });
+    mov.push_back({ {0x8a}, Pat<r8, rm8>{}, Emitter<RM>{} });
 
     // 0x8B MOV r16, r/m16 -- RM
     // 0x8B MOV r32, r/m32 -- RM
     // 0x8B MOV r64, r/m64 -- RM
-    mov.push_back({
-        {0x8b},
-        Or<
-            Pat<r16, rm16>,
-            Pat<r32, rm32>,
-            Pat<r64, rm64>
-        >{},
-        Emitter<RM>{}
-    });
+    mov.push_back({ {0x8b}, Or< Pat<r16, rm16>, Pat<r32, rm32>, Pat<r64, rm64> >{}, Emitter<RM>{} });
 
     // 0x8C MOV r/m16, Sreg       -- MR
     // 0x8C MOV r16/r32/m16, Sreg -- MR
     // 0x8C MOV r64/m16, Seg      -- MR
-    mov.push_back({
-        {0x8c},
-        Pat<Any<rm16, r32, r64>, sreg>{},
-        Emitter<MR>{}
-    });
+    mov.push_back({ {0x8c}, Pat<Any<rm16, r32, r64>, sreg>{}, Emitter<MR>{} });
 
     // 0x8E MOV Sreg, r/m16 -- RM
     // 0x8E MOV Sreg, r/m64 -- RM
-    mov.push_back({
-        {0x8e},
-        Pat<sreg, Any<rm16, rm64>>{},
-        Emitter<RM>{}
-    });
+    mov.push_back({ {0x8e}, Pat<sreg, Any<rm16, rm64>>{}, Emitter<RM>{} });
 
     // 0xA0 MOV AL, moffs8   -- FD
-    mov.push_back({
-        {0xa0},
-        Pat<r<B8, Rax>, moffs8>{},
-        Emitter<FD>{}
-    });
+    mov.push_back({ {0xa0}, Pat<r<B8, Rax>, moffs8>{}, Emitter<FD>{} });
 
     // 0xA1 MOV AX, moffs16  -- FD
     // 0xA1 MOV EAX, moffs32 -- FD
     // 0xA1 MOV RAX, moffs64 -- FD
-    mov.push_back({
-        {0xa1},
-        Or<
-            Pat<r<B16, Rax>, moffs16>,
-            Pat<r<B32, Rax>, moffs32>,
-            Pat<r<B64, Rax>, moffs64>
-        >{},
-        Emitter<FD>{}
-    });
+    mov.push_back({ {0xa1}, Or< Pat<r<B16, Rax>, moffs16>, Pat<r<B32, Rax>, moffs32>, Pat<r<B64, Rax>, moffs64> >{}, Emitter<FD>{} });
 
     // 0xA2 MOV moffs8, AL -- TD
-    mov.push_back({
-        {0xa2},
-        Pat<moffs8, r<B8, Rax>>{},
-        Emitter<TD>{}
-    });
+    mov.push_back({ {0xa2}, Pat<moffs8, r<B8, Rax>>{}, Emitter<TD>{} });
 
     // 0xA3 MOV moffs16, AX  -- TD
     // 0xA3 MOV moffs32, EAX -- TD
     // 0xA3 MOV moffs64, RAX -- TD
-    mov.push_back({
-        {0xa3},
-        Or<
-            Pat<moffs16, r<B16, Rax>>,
-            Pat<moffs32, r<B32, Rax>>,
-            Pat<moffs64, r<B64, Rax>>
-        >{},
-        Emitter<TD>{}
-    });
+    mov.push_back({ {0xa3}, Or< Pat<moffs16, r<B16, Rax>>, Pat<moffs32, r<B32, Rax>>, Pat<moffs64, r<B64, Rax>> >{}, Emitter<TD>{} });
+
+    // 0xB0 MOV r8, imm8 -- OI
+    mov.push_back({ {0xb0}, Pat<r8, imm8>{}, Emitter<OI>{} });
+
+    // 0xB8 MOV r16, imm16 -- OI
+    // 0xB8 MOV r32, imm32 -- OI
+    // 0xB8 MOV r64, imm64 -- OI
+    mov.push_back({ {0xb8}, Or< Pat<r16, imm16>, Pat<r32, imm32>, Pat<r64, imm64> >{}, Emitter<OI>{} });
+
+    // 0xC6 MOV r/m8, imm8 -- MI
+    mov.push_back({ {0xc6}, Pat<rm8, imm8>{}, Emitter<MI>{} });
+
+    // 0xC7 MOV r/m16, imm16 -- MI
+    // 0xC7 MOV r/m32, imm32 -- MI
+    // 0xC7 MOV r/m64, imm32 -- MI
+    mov.push_back({ {0xc7}, Or< Pat<rm16, imm16>, Pat<rm32, imm32>, Pat<rm64, imm32> >{}, Emitter<MI>{} });
 }
