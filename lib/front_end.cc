@@ -1005,7 +1005,7 @@ void fiska::ModulePrinter::print(const X86Op& op, bool is_last) {
         out_ += c("Moffset\n", fg(dark_cyan));
         out_ += line_prefix(/*is_last*/true);
         out_ += fmt::format(" Address: {}, Bit width: {} \n",
-                fmt::format(fg(cyan), "{:#04x}", moffs.as_i64()),
+                fmt::format(fg(cyan), "{:#04x}", moffs.as<u64>()),
                 c_cyan(str_of_bw(moffs.bit_width_)));
     }
     indent_--;
@@ -1094,98 +1094,81 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     Vec<InstrExpr>& mov = git_[X86IK::Mov];
 
     // 0x88 MOV r/m8, r8 -- MR
-    mov.push_back(
-        InstrExpr{
-            {0x88},
-            Pat<rm8, r8>{},
-            Emitter<MR>{}
-        }
-    );
+    mov.push_back({
+        {0x88},
+        Pat<rm8, r8>{},
+        Emitter<MR>{}
+    });
 
     // 0x89 MOV r/m16, r16 -- MR
     // 0x89 MOV r/m32, r32 -- MR
     // 0x89 MOV r/m64, r64 -- MR
-    mov.push_back(
-        InstrExpr {
-            {0x89},
-            Or<
-                Pat<rm16, r16>,
-                Pat<rm32, r32>,
-                Pat<rm64, r64>
-            >{},
-            Emitter<MR>{}
-        }
-    );
+    mov.push_back({
+        {0x89},
+        Or<
+            Pat<rm16, r16>,
+            Pat<rm32, r32>,
+            Pat<rm64, r64>
+        >{},
+        Emitter<MR>{}
+    });
 
     // 0x8A MOV r8, r/m8 -- RM
-    mov.push_back(
-        InstrExpr {
-            {0x8a},
-            Pat<r8, rm8>{},
-            Emitter<RM>{}
-        }
-    );
+    mov.push_back({
+        {0x8a},
+        Pat<r8, rm8>{},
+        Emitter<RM>{}
+    });
 
     // 0x8B MOV r16, r/m16 -- RM
     // 0x8B MOV r32, r/m32 -- RM
     // 0x8B MOV r64, r/m64 -- RM
-    mov.push_back(
-        InstrExpr {
-            {0x8b},
-            Or<
-                Pat<r16, rm16>,
-                Pat<r32, rm32>,
-                Pat<r64, rm64>
-            >{},
-            Emitter<RM>{}
-        }
-    );
+    mov.push_back({
+        {0x8b},
+        Or<
+            Pat<r16, rm16>,
+            Pat<r32, rm32>,
+            Pat<r64, rm64>
+        >{},
+        Emitter<RM>{}
+    });
 
     // 0x8C MOV r/m16, Sreg       -- MR
     // 0x8C MOV r16/r32/m16, Sreg -- MR
     // 0x8C MOV r64/m16, Seg      -- MR
-    mov.push_back(
-        InstrExpr {
-            {0x8c},
-            Pat<Any<rm16, r32, r64>, sreg>{},
-            Emitter<MR>{}
-        }
-    );
+    mov.push_back({
+        {0x8c},
+        Pat<Any<rm16, r32, r64>, sreg>{},
+        Emitter<MR>{}
+    });
 
     // 0x8E MOV Sreg, r/m16 -- RM
     // 0x8E MOV Sreg, r/m64 -- RM
-    mov.push_back(
-        InstrExpr {
-            {0x8e},
-            Pat<sreg, Any<rm16, rm64>>{},
-            Emitter<RM>{}
-        }
-    );
+    mov.push_back({
+        {0x8e},
+        Pat<sreg, Any<rm16, rm64>>{},
+        Emitter<RM>{}
+    });
 
     // 0xA0 MOV AL, moffs8   -- FD
-    mov.push_back(
-        InstrExpr {
-            {0xa0},
-            Pat<r<B8, Rax>, moffs8>{},
-            Emitter<FD>{}
-        }
-    );
+    mov.push_back({
+        {0xa0},
+        Pat<r<B8, Rax>, moffs8>{},
+        Emitter<FD>{}
+    });
 
     // 0xA1 MOV AX, moffs16  -- FD
     // 0xA1 MOV EAX, moffs32 -- FD
     // 0xA1 MOV RAX, moffs64 -- FD
-    mov.push_back(
-        InstrExpr {
-            {0xa1},
-            Or<
-                Pat<r<B16, Rax>, moffs16>,
-                Pat<r<B32, Rax>, moffs32>,
-                Pat<r<B64, Rax>, moffs64>
-            >{},
-            Emitter<FD>{}
-        }
-    );
+    mov.push_back({
+        {0xa1},
+        Or<
+            Pat<r<B16, Rax>, moffs16>,
+            Pat<r<B32, Rax>, moffs32>,
+            Pat<r<B64, Rax>, moffs64>
+        >{},
+        Emitter<FD>{}
+    });
 
     // 0xA2 MOV moffs8, AL -- TD
-
 }

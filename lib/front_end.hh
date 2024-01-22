@@ -123,7 +123,8 @@ enum struct ErrKind {
 enum struct OpEn {
     MR,
     RM,
-    FD
+    FD,
+    TD
 };
 
 struct Tok {
@@ -148,18 +149,18 @@ struct Error {
 
 union Sib {
     struct {
-        u8 base: 3;
-        u8 index: 3;
-        u8 scale: 2;
+        u8 base: 3{};
+        u8 index: 3{};
+        u8 scale: 2{};
     };
     u8 raw;
 };
 
 union ModRM {
     struct {
-        u8 rm: 3;
-        u8 reg: 3;
-        u8 mod: 2;
+        u8 rm: 3{};
+        u8 reg: 3{};
+        u8 mod: 2{};
     };
     u8 raw;
 };
@@ -167,13 +168,13 @@ union ModRM {
 union Rex {
     struct {
         // Mod_Rm::r/m or Sib::Base extension or opcode extension.
-        u8 b: 1;
+        u8 b: 1{};
         // Sib::Index extension.
-        u8 x: 1;
+        u8 x: 1{};
         // Mod_Rm::reg extension.
-        u8 r: 1;
+        u8 r: 1{};
         // Operand size override.
-        u8 w: 1;
+        u8 w: 1{};
         u8 mod: 4 {0b0100}; 
     };
     u8 raw;
@@ -235,14 +236,15 @@ struct Moffs {
     BW bit_width_{};
     i64 inner_{};
 
-    auto as_i64() const -> i64 { return inner_; }
+    template <OneOf<i64, u64> Size>
+    auto as() const -> Size { return static_cast<Size>(inner_); }
 };
 
 struct Imm {
     BW bit_width_{};
     i64 inner_{};
 
-    template <OneOf<i8, i16, i32, i64> Size>
+    template <OneOf<i8, i16, i32, i64, u64> Size>
     auto as() const -> Size { return static_cast<Size>(inner_); }
 };
 
@@ -628,12 +630,9 @@ struct ByteStream {
 
 // Concept identifying all the x86 operand classes below.
 template <typename T>
-concept IsX86OpClass = requires {
-    { T::match };
+concept IsX86OpClass = requires(X86Op op) {
+    { T::match(op) } -> std::same_as<bool>;
 };
-//concept IsX86OpClass = requires(T) {
-//    { T::match(X86Op{}) };
-//};
 //=====================================================
 // Register classes.
 //=====================================================
@@ -730,7 +729,7 @@ concept IsInstrPat = requires(T) {
 //====================================================================
 // Patterns of x86 operands. 
 //====================================================================
-template <typename... X86Ops>
+template <IsX86OpClass... X86Ops>
 struct Pat {
     static constexpr auto match(Span<const X86Op> ops) -> bool {
         static constexpr usz pat_sz = sizeof...(X86Ops);
@@ -818,7 +817,32 @@ struct Emitter<OpEn::RM> {
 template <>
 struct Emitter<OpEn::FD> {
     static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
-        todo();
+        using enum BW;
+
+        assert(ops.size() == 2);
+        assert(ops[0].is<Reg>() and ops[1].is<Moffs>());
+
+        ByteStream bs{};
+
+        Rex rex {
+            .w = std::max(+ops[0].bit_width(), +ops[1].bit_width()) == +BW::B64
+        };
+
+        bs.append_if(rex.is_required(), B8, rex.raw)
+          .append(std::move(opcode))
+          .append(B64, ops[1].as<Moffs>().as<u64>());
+
+        return bs.out_;
+    }
+};
+
+template <>
+struct Emitter<OpEn::TD> {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+        assert(ops.size() == 2);
+        assert(ops[0].is<Moffs>() and ops[1].is<Reg>());
+
+        return Emitter<OpEn::FD>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]});
     }
 };
 
@@ -832,11 +856,11 @@ struct InstrExpr {
     ByteVec opcode_{};
 
     template <typename Matcher, typename Emitter>
-    requires requires (Matcher, Emitter) {
-        { Matcher::match(Span<const X86Op>{}) } -> std::same_as<bool>;
-        { Emitter::emit(ByteVec{}, Span<const X86Op>{}) } -> std::same_as<ByteVec>;
+    requires requires (ByteVec opcode, Span<const X86Op> ops) {
+        { Matcher::match(ops) } -> std::same_as<bool>;
+        { Emitter::emit(opcode, ops) } -> std::same_as<ByteVec>;
     }
-    InstrExpr(ByteVec opcode, Matcher, Emitter) : 
+    /*implicit*/ InstrExpr(ByteVec opcode, Matcher, Emitter) : 
             match_(Matcher::match), emit_(Emitter::emit), opcode_(opcode)
     {}
 
