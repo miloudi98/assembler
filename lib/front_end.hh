@@ -780,6 +780,9 @@ struct Emitter<OpEn::MR> {
             .b = ops[0].is<Reg>() and ops[0].as<Reg>().requires_ext(),
             .x = 0,
             .r = ops[1].is<Reg>() and ops[1].as<Reg>().requires_ext(),
+            // TODO(miloudi): This logic of setting the REX.W bit is flawed since 
+            // moving from or to control/debug registers do not require it even though
+            // they are techically 64-bits.
             .w = std::max(+ops[0].bit_width(), +ops[1].bit_width()) == +BW::B64
         };
 
@@ -831,6 +834,9 @@ struct Emitter<OpEn::FD> {
         ByteStream bs{};
 
         Rex rex {
+            // TODO(miloudi): This logic of setting the REX.W bit is flawed since 
+            // moving from or to control/debug registers do not require it even though
+            // they are techically 64-bits.
             .w = std::max(+ops[0].bit_width(), +ops[1].bit_width()) == +BW::B64
         };
 
@@ -865,6 +871,9 @@ struct Emitter<OpEn::OI> {
 
         Rex rex {
             .b = ops[0].as<Reg>().requires_ext(), 
+            // TODO(miloudi): This logic of setting the REX.W bit is flawed since 
+            // moving from or to control/debug registers do not require it even though
+            // they are techically 64-bits.
             .w = is<B64>(ops[0].bit_width()),
         };
 
