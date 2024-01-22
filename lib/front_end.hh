@@ -914,7 +914,6 @@ struct InstrExpr {
 };
 
 struct Assembler {
-    ByteStream bs_{};
     // Global instruction table.
     static inline std::unordered_map<X86IK, Vec<InstrExpr>> git_;
 
@@ -926,7 +925,10 @@ struct Assembler {
     Assembler& operator=(Assembler&&) = delete;
 
     template <X86IK ik>
-    void register_instruction();
+    static void register_instruction();
+
+    template <X86IK ik>
+    static auto encode(Span<const X86Op> ops) -> Opt<ByteVec>;
 };
 
 }  // namespace fiska

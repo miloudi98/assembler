@@ -677,7 +677,11 @@ auto fiska::Parser::parse_x86_instruction(ProcExpr* enclosing_proc) -> X86Instru
         X86Op src = parse_x86_operand();
         expect(TK::RParen, TK::SemiColon);
 
-        return new (enclosing_proc) Mov(dst, src);
+        return new (enclosing_proc) Mov(
+                dst,
+                src,
+                Assembler::encode<X86IK::Mov>({dst, src})
+            );
     }
     } // switch
 
@@ -1088,6 +1092,16 @@ using imm16 = i<BW::B16>;
 using imm32 = i<BW::B32>;
 using imm64 = i<BW::B64>;
 
+// TODO(miloudi): Check whether ctrl registers are really 32 bits.
+// I'm pretty sure they are 32 bits, but it's better to provide a reference
+// here in the code.
+using cr = r<BW::B64, RK::Ctrl>;
+
+// TODO(miloudi): Check whether dbg registers are 32 bits.
+// Same thing here, it's good to have a reference here confirming
+// the size of debug registers.
+using dbg = r<BW::B64, RK::Dbg>;
+
 } // namespace
 
 template <>
@@ -1234,4 +1248,44 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
         >{},
         Emitter<MI>{}
     });
+
+    // 0x0F 0x20 MOV r64, CR0-CR8 -- MR
+    mov.push_back({
+        {0x0f, 0x20},
+        Pat<r64, ctrl>{},
+        Emitter<MR>{}
+    });
+
+    // 0x0F 0x22 MOV CR0-CR8, r64 -- RM
+    mov.push_back({
+        {0x0f, 0x22},
+        Pat<ctrl, r64>{},
+        Emitter<RM>{}
+    });
+
+    // 0x0F 0x21 MOV r64, DR0-DR7 -- MR 
+    mov.push_back({
+        {0x0f, 0x21},
+        Pat<r64, dbg>{},
+        Emitter<MR>{}
+    });
+
+    // 0x0F 0x23 MOV DR0-DR7, r64 -- RM
+    mov.push_back({
+        {0x0f, 0x23},
+        Pat<dbg, r64>{},
+        Emitter<RM>{}
+    });
+}
+
+template <X86IK ik>
+auto encode(Span<const X86Op> ops) -> Opt<ByteVec> {
+    if (not git_.contains(ik)) { unreachable("Unsupported instruction."); }
+
+    for (const InstrExpr& instr_expr : git_[ik]) {
+        if (not instr_expr.match(ops)) { continue; }
+        return instr_expr.emit(ops);
+    }
+
+    return std::nullopt;
 }
