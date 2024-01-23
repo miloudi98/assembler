@@ -1252,14 +1252,14 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0x0F 0x20 MOV r64, CR0-CR8 -- MR
     mov.push_back({
         {0x0f, 0x20},
-        Pat<r64, ctrl>{},
+        Pat<r64, cr>{},
         Emitter<MR>{}
     });
 
     // 0x0F 0x22 MOV CR0-CR8, r64 -- RM
     mov.push_back({
         {0x0f, 0x22},
-        Pat<ctrl, r64>{},
+        Pat<cr, r64>{},
         Emitter<RM>{}
     });
 
@@ -1279,7 +1279,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
 }
 
 template <X86IK ik>
-auto encode(Span<const X86Op> ops) -> Opt<ByteVec> {
+auto fiska::Assembler::encode(const Vec<X86Op>& ops) -> ByteVec {
     if (not git_.contains(ik)) { unreachable("Unsupported instruction."); }
 
     for (const InstrExpr& instr_expr : git_[ik]) {
@@ -1287,5 +1287,5 @@ auto encode(Span<const X86Op> ops) -> Opt<ByteVec> {
         return instr_expr.emit(ops);
     }
 
-    return std::nullopt;
+    return {};
 }

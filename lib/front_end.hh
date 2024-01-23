@@ -304,8 +304,8 @@ struct Mov : public X86Instruction {
     X86Op dst_;
     X86Op src_;
 
-    Mov(X86Op dst, X86Op src) 
-        : X86Instruction(X86IK::Mov), dst_(dst), src_(src) {}
+    Mov(X86Op dst, X86Op src, ByteVec encoding) 
+        : X86Instruction(X86IK::Mov, encoding), dst_(dst), src_(src) {}
 };
 
 struct Expr {
@@ -735,6 +735,7 @@ template <IsX86OpClass... X86Ops>
 struct Pat {
     static constexpr auto match(Span<const X86Op> ops) -> bool {
         static constexpr usz pat_sz = sizeof...(X86Ops);
+
         if (pat_sz != ops.size()) { return false; }
 
         u64 op_idx = 0;
@@ -918,8 +919,8 @@ struct InstrExpr {
             match_(Matcher::match), emit_(Emitter::emit), opcode_(opcode)
     {}
 
-    auto match(Span<const X86Op> ops) -> bool { return match_(ops); }
-    auto emit(Span<const X86Op> ops) -> ByteVec { return emit_(opcode_, ops); }
+    auto match(Span<const X86Op> ops) const -> bool { return match_(ops); }
+    auto emit(Span<const X86Op> ops) const -> ByteVec { return emit_(opcode_, ops); }
 };
 
 struct Assembler {
@@ -937,7 +938,7 @@ struct Assembler {
     static void register_instruction();
 
     template <X86IK ik>
-    static auto encode(Span<const X86Op> ops) -> Opt<ByteVec>;
+    static auto encode(const Vec<X86Op>& ops) -> ByteVec;
 };
 
 }  // namespace fiska
