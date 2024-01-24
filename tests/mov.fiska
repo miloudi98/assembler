@@ -1,16 +1,12 @@
 // One line comment
 fn function {
+    mov(b64 rax, b64 rbx);
     mov(b64 rax, @b64 [] - 92233);
     mov(b32 rax, @b32 [rax][1][rbx] + 0x1122);
-    mov(b32 r12, @b32 0x11223344);
+    mov(b32 rax, @b32 0x11223344);
     mov(b32 r12, @b32 [rax]);
-
-
-//fn second_function {
-//    mov(b64 rax, @b64 [] - 92233);
-//    mov(b32 rax, @b32 [rax][1][rbx] + 0x1122);
-//    mov(b32 r12, @b32 0x11223344);
-//    mov(b32 r12, @b32 [rax]);
-//    mov(b32 r12, b16 es);
-//}
-
+    mov(b16 rax, b16 rbx);
+    mov(b16 rax, b16 cs);
+    mov(b16 rax, b16 ss);
+    mov(b64 rax, b64 dbg0);
+}

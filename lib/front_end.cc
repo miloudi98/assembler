@@ -246,10 +246,10 @@ auto fiska::str_of_ri(RI rid) -> StrRef {
 
 auto fiska::str_of_rk(RK rkind) -> StrRef {
     switch (rkind) {
-    case RK::Gp: return "General Purpose";
-    case RK::Seg: return "Segment";
-    case RK::Ctrl: return "Control";
-    case RK::Dbg: return "Debug";
+    case RK::Gp: return "GP";
+    case RK::Seg: return "SEG";
+    case RK::Ctrl: return "CTRL";
+    case RK::Dbg: return "DBG";
     } // switch
     unreachable();
 }
@@ -624,6 +624,12 @@ fiska::Module::~Module() {
     rgs::for_each(ast_, [](Expr* expr) { delete expr; });
 }
 
+fiska::Parser::Parser(File* file, Module* mod)
+    : mod_(mod), fid_(file->fid_), curr_tok_it_(mod_->tokens_.begin())
+{
+    Assembler as{};
+}
+
 auto fiska::Parser::tok() -> const Tok& {
     return *curr_tok_it_;
 }
@@ -677,6 +683,10 @@ auto fiska::Parser::parse_x86_instruction(ProcExpr* enclosing_proc) -> X86Instru
         X86Op src = parse_x86_operand();
         expect(TK::RParen, TK::SemiColon);
 
+        // TODO(miloudi): Don't lose information about the instruction text.
+        // Keep that stored so it could be printed later. The solution is to  
+        // simply concatenate the StrRef's returned from |prev(lookbehind).str_|.
+        // |lookbehind| will range from 0 to the index where |TK::Mnemonic| is encountered.
         return new (enclosing_proc) Mov(
                 dst,
                 src,
@@ -950,8 +960,8 @@ void fiska::ModulePrinter::print(X86Instruction* instruction, bool is_last) {
     switch (instruction->kind_) {
     case X86IK::Mov: {
         auto mov = static_cast<Mov*>(instruction);
-        out_ += c("Mov", fg(dark_cyan));
-        out_ += fmt::format(" {}\n", mov->str_of_encoding());
+        out_ += c("Mov", fg(orange));
+        out_ += fmt::format(fg(dark_orange) | bold, " {}\n", mov->str_of_encoding());
 
         indent_++;
         print(mov->dst_, /*is_last=*/false);
@@ -1280,7 +1290,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
 
 template <X86IK ik>
 auto fiska::Assembler::encode(const Vec<X86Op>& ops) -> ByteVec {
-    if (not git_.contains(ik)) { unreachable("Unsupported instruction."); }
+    assert(git_.contains(ik), "Unsupported instruction.");
 
     for (const InstrExpr& instr_expr : git_[ik]) {
         if (not instr_expr.match(ops)) { continue; }
@@ -1289,3 +1299,55 @@ auto fiska::Assembler::encode(const Vec<X86Op>& ops) -> ByteVec {
 
     return {};
 }
+
+fiska::Assembler::Assembler() {
+    using enum X86IK;
+    register_instruction<Mov>();
+}
+
+
+auto fiska::Mem::kind() const -> MK {
+    if (base_reg_ and index_reg_) { return MK::BaseIndexDisp; }
+    if (not base_reg_ and index_reg_) { return MK::IndexDisp; }
+    if (base_reg_ and not index_reg_) { return MK::BaseDisp; }
+
+    assert(disp_ and not base_reg_ and not index_reg_);
+    return MK::DispOnly;
+}
+
+GCC_DIAG_IGNORE_PUSH(-Wconversion)
+auto fiska::Mem::sib() const -> Opt<u8> {
+    using enum RI;
+
+    Sib sib{};
+    switch (kind()) {
+    case MK::BaseDisp: {
+        if (not ::is<Rsp, R12>(base_reg_->id_)) {
+            return std::nullopt;
+        }
+
+        sib.base = base_reg_->index();
+        sib.index = ksib_no_index_reg;
+        break;
+    }
+    case MK::BaseIndexDisp: {
+        sib.base = base_reg_->index();
+        sib.index = index_reg_->index();
+        sib.scale = +scale_.value();
+        break;
+    }
+    case MK::IndexDisp: {
+        sib.base = ksib_no_base_reg;
+        sib.index = index_reg_->index();
+        sib.scale = +scale_.value();
+        break;
+    }
+    case MK::DispOnly: {
+        sib.base = ksib_no_base_reg;
+        sib.index = ksib_no_index_reg;
+        break;
+    }
+    } // switch
+    return sib.raw;
+}
+GCC_DIAG_IGNORE_POP();

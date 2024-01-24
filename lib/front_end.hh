@@ -212,7 +212,7 @@ struct Mem {
     static constexpr u8 ksib_no_index_reg = 0b100;
     static constexpr u8 ksib_no_base_reg = 0b101;
 
-    enum struct Scale : i8 {
+    enum struct Scale : u8 {
         One = 0,
         Two = 1,
         Four = 2,
@@ -225,13 +225,9 @@ struct Mem {
     Opt<Scale> scale_{std::nullopt};
     Opt<i64> disp_{std::nullopt};
 
-    [[nodiscard]] auto kind() const -> MK {
-        todo();
-    }
+    [[nodiscard]] auto kind() const -> MK;
 
-    [[nodiscard]] auto sib() const -> Opt<u8> {
-        todo();
-    }
+    [[nodiscard]] auto sib() const -> Opt<u8>;
 };
 
 struct Moffs {
@@ -304,8 +300,8 @@ struct Mov : public X86Instruction {
     X86Op dst_;
     X86Op src_;
 
-    Mov(X86Op dst, X86Op src) 
-        : X86Instruction(X86IK::Mov), dst_(dst), src_(src) {}
+    Mov(X86Op dst, X86Op src, ByteVec encoding) 
+        : X86Instruction(X86IK::Mov, encoding), dst_(dst), src_(src) {}
 };
 
 struct Expr {
@@ -519,8 +515,7 @@ struct Parser {
     u16 fid_{};
     TokStream::Iterator curr_tok_it_{};
 
-    explicit Parser(File* file, Module* mod) 
-        : mod_(mod), fid_(file->fid_), curr_tok_it_(mod->tokens_.begin()) {}
+    explicit Parser(File* file, Module* mod); 
 
     auto at(std::same_as<TK> auto... tok_tys) -> bool {
         return ((tok().kind_ == tok_tys) or ...);
@@ -768,13 +763,26 @@ struct Emitter<OpEn::MR> {
     GCC_DIAG_IGNORE_PUSH(-Wconversion)
     static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
         using enum BW;
+        using r64 = r<B64>;
+        using r32 = r<B32>;
+        using rm16 = Any<r<B16>, m<B16>>;
+        using rm64 = Any<r<B64>, m<B64>>;
+
         using cr = r<B64, RK::Ctrl>;
         using dbg = r<B64, RK::Dbg>;
+        using sreg = r<B16, RK::Seg>;
+
         using ctrl_or_dbg_mov = 
             Or<
                 Pat<Any<cr, dbg>, r64>,
                 Pat<r64, Any<cr, dbg>>
             >;
+        using seg_mov =
+            Or<
+                Pat<sreg, Any<rm16, rm64>>,
+                Pat<Any<rm16, r32, r64>, sreg>
+            >;
+
                         
                        
         assert(ops.size() == 2);
@@ -794,14 +802,9 @@ struct Emitter<OpEn::MR> {
             .x = 0,
             .r = ops[1].is<Reg>() and ops[1].as<Reg>().requires_ext(),
             .w = ctrl_or_dbg_mov::match(ops) 
-                ? 0
+                ? bool(0)
                 : std::max(+ops[0].bit_width(), +ops[1].bit_width()) == +B64
         };
-
-        if (Pat<all, Any<cr, dbg>>::match(ops)
-                or Pat<Any<cr, dbg>, all>::match(ops)) {
-            rex.w = 0;
-        }
 
         Opt<u8> sib{std::nullopt};
         Opt<i64> disp{std::nullopt};
@@ -816,8 +819,11 @@ struct Emitter<OpEn::MR> {
             rex.x = mem.index_reg_ and mem.index_reg_->requires_ext();
         }
 
-        bs.append_if(is<B16>(ops[0].bit_width()) 
-                 or is<B16>(ops[1].bit_width()), B8, Context::k16_bit_prefix)
+        bool need_16_bit_prefix = seg_mov::match(ops)
+            ? /*non segment register*/ ::is<B16>(ops[0].bit_width()) 
+            : is<B16>(ops[0].bit_width()) or is<B16>(ops[1].bit_width());
+
+        bs.append_if(need_16_bit_prefix, B8, Context::k16_bit_prefix)
           .append_if(rex.is_required(), B8, rex.raw)
           .append(std::move(opcode))
           .append(B8, modrm.raw)
@@ -851,9 +857,6 @@ struct Emitter<OpEn::FD> {
         ByteStream bs{};
 
         Rex rex {
-            // TODO(miloudi): This logic of setting the REX.W bit is flawed since 
-            // moving from or to control/debug registers do not require it even though
-            // they are techically 64-bits.
             .w = is<B64>(ops[0].bit_width())
         };
 
@@ -932,15 +935,15 @@ struct InstrExpr {
             match_(Matcher::match), emit_(Emitter::emit), opcode_(opcode)
     {}
 
-    auto match(Span<const X86Op> ops) -> bool { return match_(ops); }
-    auto emit(Span<const X86Op> ops) -> ByteVec { return emit_(opcode_, ops); }
+    auto match(Span<const X86Op> ops) const -> bool { return match_(ops); }
+    auto emit(Span<const X86Op> ops) const -> ByteVec { return emit_(opcode_, ops); }
 };
 
 struct Assembler {
     // Global instruction table.
     static inline std::unordered_map<X86IK, Vec<InstrExpr>> git_;
 
-    Assembler() {}
+    Assembler();
     // No copies or moves allowed.
     Assembler(const Assembler&) = delete;
     Assembler(Assembler&&) = delete;
@@ -951,7 +954,7 @@ struct Assembler {
     static void register_instruction();
 
     template <X86IK ik>
-    static auto encode(Span<const X86Op> ops) -> Opt<ByteVec>;
+    static auto encode(const Vec<X86Op>& ops) -> ByteVec;
 };
 
 }  // namespace fiska
