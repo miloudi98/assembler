@@ -9,7 +9,7 @@
 
 namespace fiska {
 
-struct Context;
+struct Ctx;
 
 struct File {
     u16 fid_{};
@@ -52,8 +52,8 @@ struct Location {
     u32 len_{};
     u16 fid_{};
 
-    auto source_text(Context* ctx) const -> StrRef;
-    auto line_col_info(Context* ctx) const -> LineColInfo;
+    auto source_text(Ctx* ctx) const -> StrRef;
+    auto line_col_info(Ctx* ctx) const -> LineColInfo;
     auto merge(const Location& other) const -> Location;
 };
 

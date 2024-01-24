@@ -3,12 +3,12 @@
 #include "lib/core.hh"
 #include "lib/front_end.hh"
 
-auto fiska::Location::source_text(Context* ctx) const -> StrRef {
+auto fiska::Location::source_text(Ctx* ctx) const -> StrRef {
     File* file = ctx->get_file(fid_);
     return StrRef{file->data(), file->size()}.substr(pos_, len_);
 }
 
-auto fiska::Location::line_col_info(Context* ctx) const -> LineColInfo {
+auto fiska::Location::line_col_info(Ctx* ctx) const -> LineColInfo {
     File* file = ctx->get_file(fid_);
     
     const char* file_start = file->data();
@@ -48,12 +48,12 @@ auto fiska::Location::merge(const Location& other) const -> Location {
     };
 }
 
-auto fiska::Context::get_file(u16 fid) -> File* {
+auto fiska::Ctx::get_file(u16 fid) -> File* {
     assert(fid < files_.size(), "Invalid fid '{}' encountered when attempting to view a file.", fid);
     return files_[fid].get();
 }
 
-auto fiska::Context::load_file(const fs::path& path) -> u16 {
+auto fiska::Ctx::load_file(const fs::path& path) -> u16 {
     u16 fid = u16(files_.size());
     files_.push_back(
         std::make_unique<File>(fid, path, utils::load_file(path))

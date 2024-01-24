@@ -7,7 +7,7 @@ using namespace fiska;
 constexpr std::string_view file_name = "/home/jawad/fiska/dev/x86_assembler/tests/mov.fiska";
 
 auto main(i32 argc, char* argv[]) -> i32 {
-    auto ctx = std::make_unique<Context>();
+    auto ctx = std::make_unique<Ctx>();
     auto mod = std::make_unique<Module>();
     mod->name_ = "main_mod";
     mod->ctx_ = ctx.get();

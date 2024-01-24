@@ -139,7 +139,7 @@ struct Tok {
 
 struct Error {
     ErrKind kind_{};
-    Context* ctx_{};
+    Ctx* ctx_{};
     Location loc_{};
     union {
         char c_;
@@ -204,14 +204,6 @@ struct Reg {
 };
 
 struct Mem {
-    static constexpr u8 kmod_mem = 0b00;
-    static constexpr u8 kmod_mem_disp8 = 0b01;
-    static constexpr u8 kmod_mem_disp32 = 0b10;
-    static constexpr u8 kmod_reg = 0b11;
-    static constexpr u8 ksib_marker = 0b100;
-    static constexpr u8 ksib_no_index_reg = 0b100;
-    static constexpr u8 ksib_no_base_reg = 0b101;
-
     enum struct Scale : u8 {
         One = 0,
         Two = 1,
@@ -343,7 +335,7 @@ struct Module {
     TokStream tokens_;
     Vec<Expr*> ast_;
     Vec<Expr*> top_level_exprs_;
-    Context* ctx_{};
+    Ctx* ctx_{};
 
     Module() {}
     ~Module();
@@ -354,16 +346,16 @@ struct Module {
     Module& operator=(Module&&) = delete;
 };
 
-struct Context {
+struct Ctx {
     Vec<Box<File>> files_;
     Vec<Box<Module>> modules_;
 
-    Context() {}
+    Ctx() {}
 
-    Context(const Context&) = delete;
-    Context(Context&&) = delete;
-    Context& operator=(const Context&) = delete;
-    Context& operator=(Context&&) = delete;
+    Ctx(const Ctx&) = delete;
+    Ctx(Ctx&&) = delete;
+    Ctx& operator=(const Ctx&) = delete;
+    Ctx& operator=(Ctx&&) = delete;
 
     auto get_file(u16 fid) -> File*; 
     auto load_file(const fs::path& path) -> u16; 
@@ -372,6 +364,14 @@ struct Context {
     // Misc constatns needed for assembling.
     //===============================================
     static constexpr u8 k16_bit_prefix = 0x66;
+    static constexpr u8 kmod_mem = 0b00;
+    static constexpr u8 kmod_mem_disp8 = 0b01;
+    static constexpr u8 kmod_mem_disp32 = 0b10;
+    static constexpr u8 kmod_reg = 0b11;
+    static constexpr u8 ksib_marker = 0b100;
+    static constexpr u8 ksib_no_index_reg = 0b100;
+    static constexpr u8 ksib_no_base_reg = 0b101;
+
 };
 
 struct Lexer {
@@ -823,7 +823,7 @@ struct Emitter<OpEn::MR> {
             ? /*non segment register*/ ::is<B16>(ops[0].bit_width()) 
             : is<B16>(ops[0].bit_width()) or is<B16>(ops[1].bit_width());
 
-        bs.append_if(need_16_bit_prefix, B8, Context::k16_bit_prefix)
+        bs.append_if(need_16_bit_prefix, B8, Ctx::k16_bit_prefix)
           .append_if(rex.is_required(), B8, rex.raw)
           .append(std::move(opcode))
           .append(B8, modrm.raw)
@@ -860,7 +860,7 @@ struct Emitter<OpEn::FD> {
             .w = is<B64>(ops[0].bit_width())
         };
 
-        bs.append_if(is<B16>(ops[0].bit_width()), B8, Context::k16_bit_prefix)
+        bs.append_if(is<B16>(ops[0].bit_width()), B8, Ctx::k16_bit_prefix)
           .append_if(rex.is_required(), B8, rex.raw)
           .append(std::move(opcode))
           .append(B64, ops[1].as<Moffs>().as<u64>());
@@ -896,7 +896,7 @@ struct Emitter<OpEn::OI> {
 
         opcode.back() |= ops[0].as<Reg>().index();
 
-        bs.append_if(is<B16>(ops[0].bit_width()), B8, Context::k16_bit_prefix)
+        bs.append_if(is<B16>(ops[0].bit_width()), B8, Ctx::k16_bit_prefix)
           .append_if(rex.is_required(), B8, rex.raw)
           .append(std::move(opcode))
           .append(ops[1].bit_width(), ops[1].as<Imm>().as<u64>());

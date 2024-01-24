@@ -165,7 +165,7 @@ auto operator>>=(const Opt<T>& me, const Opt<X86Op>& you) -> Opt<X86Op> {
     return static_cast<i64>(is_negative ? -ret : ret);
 }
 
-[[nodiscard]] auto i64_of_str_or_report_error(Context* ctx, Location loc, StrRef str) -> i64 {
+[[nodiscard]] auto i64_of_str_or_report_error(Ctx* ctx, Location loc, StrRef str) -> i64 {
     Opt<i64> integer = i64_of_str(str);
     // Signed overflow.
     // Occurs when numbers are lower than i64::MIN.
@@ -530,14 +530,14 @@ auto fiska::X86Op::modrm_mod() const -> u8 {
     using enum RI;
     assert((is<Reg, Mem>()), "Trying to encode a 'Memory offset' or an 'Immediate' in the ModRm.");
 
-    if (is<Reg>()) { return Mem::kmod_reg; }
+    if (is<Reg>()) { return Ctx::kmod_reg; }
 
     const Mem& mem = as<Mem>();
 
     auto mod_based_on_disp = [](i64 disp) {
         return utils::fits_in_b8(disp) 
-            ? Mem::kmod_mem_disp8 
-            : Mem::kmod_mem_disp32;
+            ? Ctx::kmod_mem_disp8 
+            : Ctx::kmod_mem_disp32;
     };
 
     switch (mem.kind()) {
@@ -552,12 +552,12 @@ auto fiska::X86Op::modrm_mod() const -> u8 {
     }
     case MK::BaseDisp: {
         if (::is<Rbp, R13>(mem.base_reg_->id_)) { return mod_based_on_disp(mem.disp_.value_or(0)); }
-        if (not mem.disp_ or ::is<Rip>(mem.base_reg_->id_)) { return Mem::kmod_mem; }
+        if (not mem.disp_ or ::is<Rip>(mem.base_reg_->id_)) { return Ctx::kmod_mem; }
         return mod_based_on_disp(mem.disp_.value());
     }
     case MK::IndexDisp:
     case MK::DispOnly: {
-        return Mem::kmod_mem;
+        return Ctx::kmod_mem;
     }
     } // switch 
     unreachable();
@@ -576,13 +576,13 @@ auto fiska::X86Op::modrm_encoding() const -> u8 {
         assert(mem.base_reg_.has_value());
 
         return ::is<Rsp, R12>(mem.base_reg_->id_) 
-            ? Mem::ksib_marker
+            ? Ctx::ksib_marker
             : mem.base_reg_->index();
     }
     case MK::BaseIndexDisp:
     case MK::IndexDisp: 
     case MK::DispOnly: {
-        return Mem::ksib_marker;
+        return Ctx::ksib_marker;
     }
     } // switch
     unreachable();
@@ -862,7 +862,7 @@ auto fiska::Parser::parse_x86_operand() -> X86Op {
         >>= try_parse_x86_operand<Moffs>();
 
     // TODO(miloudi): Error handling should probably not be here since we don't really have
-    // any context of what instruction we're currently parsing. This limits the amount of
+    // any Ctx of what instruction we're currently parsing. This limits the amount of
     // information we can give in an error message.
     // It's good enough for now, but this needs to change later.
     if (not op) {
@@ -1327,7 +1327,7 @@ auto fiska::Mem::sib() const -> Opt<u8> {
         }
 
         sib.base = base_reg_->index();
-        sib.index = ksib_no_index_reg;
+        sib.index = Ctx::ksib_no_index_reg;
         break;
     }
     case MK::BaseIndexDisp: {
@@ -1337,14 +1337,14 @@ auto fiska::Mem::sib() const -> Opt<u8> {
         break;
     }
     case MK::IndexDisp: {
-        sib.base = ksib_no_base_reg;
+        sib.base = Ctx::ksib_no_base_reg;
         sib.index = index_reg_->index();
         sib.scale = +scale_.value();
         break;
     }
     case MK::DispOnly: {
-        sib.base = ksib_no_base_reg;
-        sib.index = ksib_no_index_reg;
+        sib.base = Ctx::ksib_no_base_reg;
+        sib.index = Ctx::ksib_no_index_reg;
         break;
     }
     } // switch
