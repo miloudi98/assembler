@@ -3,8 +3,11 @@
 
 #include <vector>
 #include <memory>
+#include <map>
 #include <algorithm>
+#include <chrono>
 #include <unordered_set>
+#include <unordered_map>
 #include <span>
 #include <ranges>
 #include <string>
@@ -53,6 +56,12 @@ using Opt = std::optional<T>;
 template <typename T>
 using Span = std::span<T>;
 
+template <typename... Args>
+using HashMap = std::unordered_map<Args...>;
+
+template <typename... Args>
+using Map = std::map<Args...>;
+
 using ByteVec = Vec<u8>;
 using StrRef = std::string_view;
 using Str = std::string;
@@ -63,6 +72,7 @@ concept OneOf = (std::same_as<T, Us> or ...);
 namespace fs = std::filesystem;
 namespace vws = std::views;
 namespace rgs = std::ranges;
+namespace chr = std::chrono;
 using namespace std::string_literals;
 
 //=======================================================================================
@@ -214,6 +224,8 @@ auto fits_in_b32(i64 num) -> bool;
 auto number_width(u64 num, u32 base = 10) -> u32;
 
 auto load_file(const fs::path& path) -> Vec<char>;
+
+auto random_tmp_path() -> fs::path;
 
 }  // namespace utils
 

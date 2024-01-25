@@ -9,4 +9,5 @@ fn function {
     mov(b16 rax, b16 cs);
     mov(b16 rax, b16 ss);
     mov(b64 rax, b64 dbg0);
+    mov(@b64 [rax], b32 0x1234);
 }

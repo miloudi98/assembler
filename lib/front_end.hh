@@ -34,7 +34,7 @@ enum struct RI {
     Rbx = 3,  Ds = 19, Cr3 = 27,  Dbg3 = 43, 
     Rsp = 4,  Fs = 20, Cr4 = 28,  Dbg4 = 44, 
     Rbp = 5,  Gs = 21, Cr5 = 29,  Dbg5 = 45, 
-    Rip = 5,
+    Rip = 0x1ffd,
     Rsi = 6,           Cr6 = 30,  Dbg6 = 46, 
     Rdi = 7,           Cr7 = 31,  Dbg7 = 47, 
     R8 = 8,            Cr8 = 32,  Dbg8 = 48,  
@@ -405,6 +405,7 @@ struct Lexer {
     static void lex_file_into_module(File* file, Module* mod);
 };
 
+// TODO(miloudi): The error reporting is simply bad.
 template <typename... Args>
 [[noreturn]] auto report_error(
     Error err,
@@ -529,7 +530,7 @@ struct Parser {
 
     void expect(std::same_as<TK> auto... tok_kind) {
         // TODO: this logic messes up the error reporting. make sure you consume the tokens
-        // and only pass the rest of the tokens to the error_handler.
+        // that match and only pass the rest of the tokens to the error_handler.
         if ((consume(tok_kind) and ...)) { return; }
         expect_error_handler(tok_kind...);
     }
@@ -907,14 +908,44 @@ struct Emitter<OpEn::OI> {
 
 template <>
 struct Emitter<OpEn::MI> {
+    GCC_DIAG_IGNORE_PUSH(-Wconversion)
     static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
         using enum BW;
 
         assert(ops.size() == 2);
         assert((ops[0].is<Reg, Mem>() and ops[1].is<Imm>()));
 
-        todo();
+        ByteStream bs{};
+
+        Opt<u8> sib{std::nullopt};
+        Opt<i64> disp{std::nullopt};
+
+        ModRM modrm {
+            .rm = ops[0].modrm_encoding(),
+            .mod = ops[0].modrm_mod()
+        };
+
+        Rex rex {
+            .b = ops[0].is<Reg>() ? ops[0].as<Reg>().requires_ext() : bool(0),
+            .w = is<B64>(ops[0].bit_width())
+        };
+
+        if (ops[0].is<Mem>()) {
+            sib = ops[0].as<Mem>().sib();
+            disp = ops[0].as<Mem>().disp_;
+        }
+
+        bs.append_if(is<B16>(ops[0].bit_width()), B8, Ctx::k16_bit_prefix)
+          .append_if(rex.is_required(), B8, rex.raw)
+          .append(std::move(opcode))
+          .append(B8, modrm.raw)
+          .append_if(sib, B8, *sib)
+          .append_if(disp, utils::fits_in_b8(*disp) ? B8 : B32, u64(*disp))
+          .append(ops[1].bit_width(), ops[1].as<Imm>().as<u64>());
+
+        return bs.out_;
     }
+    GCC_DIAG_IGNORE_POP();
 };
 
 // TODO(miloudi): Explain what this type does.

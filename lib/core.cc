@@ -3,6 +3,8 @@
 #include "fcntl.h"
 #include "sys/stat.h"
 #include "execinfo.h"
+#include "sys/types.h"
+#include "unistd.h"
 
 namespace {
 
@@ -117,8 +119,19 @@ auto utils::load_file(const fs::path& path) -> Vec<char> {
     assert(ptr != MAP_FAILED, "Failed to mmap file: '{}'", path.string());
 
     Vec<char> content(usz(file_st.st_size));
-    memcpy(content.data(), ptr, usz(file_st.st_size));
+    std::memcpy(content.data(), ptr, usz(file_st.st_size));
 
     return content;
+}
+
+auto utils::random_tmp_path() -> fs::path {
+    fs::path tmp_dir = fs::temp_directory_path();
+    Str pid = std::to_string(::getpid());
+
+    // Path should look like: "{tmp_dir}/{pid}/{hashed timestamp}.fiska".
+
+    todo("Continue the implementation.");
+
+    return tmp_dir;
 }
 

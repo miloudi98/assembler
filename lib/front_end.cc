@@ -789,8 +789,8 @@ auto fiska::Parser::try_parse_x86_operand<Mem>() -> Opt<Mem> {
             .id_ = utils::strmap_get(x86_registers, prev(1).str_)
         };
 
-        // Illegal memory reference scale.
         i64 raw_scale = i64_of_str(prev(4).str_).value();
+        // Illegal memory reference scale.
         if (not is<1LL, 2LL, 4LL, 8LL>(raw_scale)) {
             Error err {
                 .kind_ = ErrKind::IllegalValue,
@@ -900,13 +900,13 @@ auto fiska::ModulePrinter::line_prefix(bool is_last) -> UTF32Str {
 
     UTF32Str ret(num_spaces, ' ');
 
-    auto must_cont_line = [&](auto&& p) {
-        return is<bleft_corn_cont, vline>(std::get<1>(p))
-            and u64(std::get<0>(p)) < ret.size();
-    };
+    for (auto [idx, c] : prev_line_prefix_ | vws::enumerate) {
+        if (u32(idx) >= ret.size()) { continue; }
 
-    for (auto [idx, _] : prev_line_prefix_ | vws::enumerate | vws::filter(must_cont_line)) {
-        ret[u32(idx)] = vline;
+        // Must continue the vertical line.
+        if (is<bleft_corn_cont, vline>(c)) {
+            ret[u32(idx)] = vline;
+        }
     }
 
     ret.push_back(is_last ? bleft_corn : bleft_corn_cont);
