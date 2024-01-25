@@ -224,8 +224,9 @@ auto fits_in_b32(i64 num) -> bool;
 auto number_width(u64 num, u32 base = 10) -> u32;
 
 auto load_file(const fs::path& path) -> Vec<char>;
+auto write_file(const void* data, usz size, const fs::path& path) -> bool;
 
-auto random_tmp_path() -> fs::path;
+auto random_tmp_path(StrRef extension) -> fs::path;
 
 }  // namespace utils
 

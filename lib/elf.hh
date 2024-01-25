@@ -62,7 +62,7 @@ auto translate_x86_op_to_gas_syntax(const X86Op& op) -> Str;
 
 auto translate_x86_instr_to_gas_syntax(const X86Instruction* instr) -> Str;
 
-auto get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<ByteVec>;
+auto get_encoding_of(Ctx* ctx, const Vec<X86Instruction*>& instructions) -> utils::StringMap<ByteVec>;
 
 } // namespace fiska
 

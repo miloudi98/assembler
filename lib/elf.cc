@@ -1,6 +1,8 @@
 #include "lib/elf.hh"
 
 #include <cstring>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "lib/core.hh"
 #include "lib/x86_core.hh"
@@ -31,7 +33,6 @@ auto fiska::get_instr_encodings(const File* elf) -> utils::StringMap<ByteVec> {
             return me.st_value < other.st_value;
         }
     );
-
 
     utils::StringMap<ByteVec> instr_encoding;
     for (u32 sym_idx = 0; sym_idx < syms.size(); ++sym_idx) {
@@ -323,6 +324,9 @@ auto fiska::translate_x86_instr_to_gas_syntax(const X86Instruction* instr) -> St
 }
 
 auto fiska::get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<ByteVec> {
+    //=============================================================================
+    // Generate the file.
+    //=============================================================================
     Str gas_file{};
 
     gas_file += fmt::format(".intel_syntax noprefix\n\n");
@@ -337,8 +341,38 @@ auto fiska::get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<Byt
         );
     }
 
-    // write the file to a temporary location.
-    // assemble the file.
-    // pass the ELf file to get_instr_encodings.
-    todo();
+    //=============================================================================
+    // Write the file to a temporary location and assemble it.
+    //=============================================================================
+    fs::path tmp_path = random_tmp_path(".fiska.as");
+    fs::path out_path = fs::path(fmt::format("{}.o", tmp_path.string()));
+
+    auto success = utils::write_file(gas_file.data(), gas_file.size(), tmp_path);
+    assert(success, "Failed to write the file '{}'.", tmp_path.string());
+
+    auto pid = fork();
+    assert(pid > -1, "Failed to fork a new process when attempting to assemble the file.");
+
+    // Child process
+    if (pid == 0) {
+        char *argv[] = { "/usr/bin/as", tmp_path.string().c_str(), "-o", out_path.string().c_str(), (char*) 0 }; 
+        execv("as", argv);	
+        perror("execve");
+        unreachable("Failed to assemble file '{}'.", tmp_path.string()); 
+
+    // Parent process
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+        // Make sure the assembler exited normally and didn't encounter any errors.
+        assert(WIFEXITED(status) and WEXITSTATUS(status) == 0, "GAS failed assembling the file.");
+    }
+
+    //=============================================================================
+    // Read the elf file assembled by the assembler and extract the encoding of
+    // the instructions.
+    //=============================================================================
+    const File* elf = ctx->get_file(ctx->load_file(out_path)); 
+
+    return get_instr_encodings(elf);
 }

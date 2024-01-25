@@ -124,14 +124,32 @@ auto utils::load_file(const fs::path& path) -> Vec<char> {
     return content;
 }
 
-auto utils::random_tmp_path() -> fs::path {
+auto utils::random_tmp_path(StrRef extension) -> fs::path {
+    // Path will look like: "{tmp_dir}/{pid}/{timestamp}.fiska.as".
     fs::path tmp_dir = fs::temp_directory_path();
-    Str pid = std::to_string(::getpid());
 
-    // Path should look like: "{tmp_dir}/{pid}/{hashed timestamp}.fiska".
+    Str file_name = fmt::format("{}-{}", std::to_string(::getpid()),
+                                chr::system_clock::now().time_since_epoch().count());
 
-    todo("Continue the implementation.");
+    if (not extension.empty()) {
+        file_name += extension;
+    }
 
-    return tmp_dir;
+    return tmp_dir / file_name;
 }
 
+auto fiska::write_file(const void* data, usz size, const fs::path& path) -> bool {
+    auto f = std::fopen(path.string().c_str(), "wb");
+    assert(f, "Failed to open the file at path: '{}' for writing", path.string());
+    defer { std::fclose(f); }
+
+    for (;;) {
+        usz written = std::fwrite(data, 1, size, f); 
+        if (written == size) { break; }
+        if (written < 1) { return false; }
+
+        data = static_cast<char*>(data) + written;
+        size -= written;
+    }
+    return true;
+}
