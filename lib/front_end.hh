@@ -985,6 +985,8 @@ enum struct B16OpSz : i1 {
     No = false
 };
 
+// TODO(miloudi): Use the cartesian product to get all the instances of a certain pattern.
+// https://en.cppreference.com/w/cpp/ranges/cartesian_product_view
 template <Rex_W rex_w, B16OpSz b16_opsz, IsX86OpClass... X86Ops>
 struct Pat {
     static constexpr auto needs_rex_w(Span<const X86Op> ops) -> i1 { return +rex_w; }
