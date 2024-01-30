@@ -272,7 +272,9 @@ concept IsX86OpClass = requires(X86Op op) {
 // Register classes.
 //=====================================================
 template <auto... args>
-struct r;
+struct r {
+    static constexpr auto match(const X86Op&) -> i1 { return false; }
+};
 
 template <BW bit_width>
 struct r<bit_width> {
@@ -358,6 +360,23 @@ struct r<bit_width, id> {
     }
 };
 
+template <RI id>
+struct r<id> {
+    static constexpr auto match(const X86Op& op) -> i1 {
+        return op.is<Reg>() and op.as<Reg>().id_ == id;
+    }
+
+    static constexpr auto instances() -> Vec<X86Op> {
+        using enum BW; 
+
+        Vec<X86Op> ret;
+        for (BW w : {B8, B16, B32, B64}) {
+            ret.push_back({ Reg{w, id} });
+        }
+        return ret;
+    }
+};
+
 //=====================================================
 // Memory classes.
 //=====================================================
@@ -421,6 +440,36 @@ struct m<bit_width> {
         }
 
         return ret;
+    }
+};
+
+template <RI base_id>
+struct m<base_id> {
+    static constexpr auto match(const X86Op& op) -> i1 {
+        return op.is<Mem>() 
+            and op.as<Mem>().base_reg_ 
+            and op.as<Mem>().base_reg_->id_ == base_id;
+    }
+};
+
+template <RI base_id, RI index_id>
+struct m<base_id, index_id> {
+    static constexpr auto match(const X86Op& op) -> i1 {
+        return m<base_id>::match(op) 
+            and op.as<Mem>().index_reg_
+            and op.as<Mem>().index_reg_->id_ == index_id;
+    }
+};
+
+// TODO(miloudi): Plot performance regressions on every commit. By performance
+// we simply mean the time it took to execute the millions of automatic tests
+// we have that tests every possible instruction.
+template <r base_reg_class>
+struct m<base_reg_class> {
+    static constexpr auto match(const X86Op& op) -> i1 {
+        return op.is<Mem>()
+            and op.as<Mem>().base_reg_
+            and base_reg_class.match({op.as<Mem>().base_reg_.value()});
     }
 };
 
@@ -936,43 +985,58 @@ enum struct B16OpSz : i1 {
     No = false
 };
 
-template <Rex_W w, B16OpSz b16_opsz, IsX86OpClass... X86Ops>
+template <Rex_W rex_w, B16OpSz b16_opsz, IsX86OpClass... X86Ops>
 struct Pat {
-    static constexpr auto needs_rex_w(Span<const X86Op> ops) -> i1 { return +w; }
+    static constexpr auto needs_rex_w(Span<const X86Op> ops) -> i1 { return +rex_w; }
 
     static constexpr auto is_b16_opsz(Span<const X86Op> ops) -> i1 { return +b16_opsz; }
 
     static constexpr auto match(Span<const X86Op> ops) -> bool {
-        static constexpr usz pat_sz = sizeof...(X86Ops);
-        if (pat_sz != ops.size()) { return false; }
         using enum BW;
+        using enum RI;
 
-        // TODO(miloudi): this doesn't work. Try to have a pattern encoding all 
-        // x86ops that require an extension and then write the logic here.
-        using high_byte_regs = Any<
-            r<B8, RI::Rah>,
-            r<B8, RI::Rch>,
-            r<B8, RI::Rdh>,
-            r<B8, RI::Rbh>
-        >;
+        static constexpr usz pat_sz = sizeof...(X86Ops);
+        static_assert(pat_sz < 255 and "op_idx overflow");
+
+        if (pat_sz != ops.size()) { return false; }
+
+        u8 op_idx = 0;
+        if (not (X86Ops::match(ops[op_idx++]) and ...)) { return false; }
+
         using rex_byte_regs = Any<
             r<B8, RI::Rsp>,
             r<B8, RI::Rbp>,
             r<B8, RI::Rsi>,
             r<B8, RI::Rdi>
         >;
-        i1 has_high_byte_regs = false;
-        i1 has_rex_byte_regs = false;
+        using high_byte_regs = Any<
+            r<B8, RI::Rah>,
+            r<B8, RI::Rch>,
+            r<B8, RI::Rdh>,
+            r<B8, RI::Rbh>
+        >;
+        i1 pat_has_high_byte_regs = rgs::any_of(ops, high_byte_regs::match);
 
-        for (u32 idx = 0; idx < ops.size(); ++idx) {
-            has_high_byte_regs |= high_byte_regs::match(ops[idx]);
-            has_rex_byte_regs |= rex_byte_regs::match(ops[idx]);
+        i1 has_rex = +rex_w;
+        for (const X86Op& op : ops) {
+            has_rex |= (op.is<Reg>() and op.as<Reg>().requires_ext());
+            has_rex |= rex_byte_regs::match(op);
+
+            if (op.is<Mem>()) {
+                const Mem& mem = op.as<Mem>();
+
+                has_rex |= mem.base_reg_ and mem.base_reg_->requires_ext();
+                has_rex |= mem.index_reg_ and mem.index_reg_->requires_ext();
+                // TODO(miloudi): you can create a mem blueprint that matches all memory 
+                // references that require an extended reg.
+                // using extended_reg = Any<r8, r9, ....>;
+                // it's that simple.
+                // using extended_mem = m<extended_reg{}, extended_reg{}>;
+                // has_rex |= m<r<>{}, r<R8>{}>::match(op);
+            }
         }
 
-        if (has_high_byte_regs and has_rex_byte_regs) { return false; }
-
-        u64 op_idx = 0;
-        return (X86Ops::match(ops[op_idx++]) and ...);
+        return not (has_rex and pat_has_high_byte_regs);
     }
 };
 

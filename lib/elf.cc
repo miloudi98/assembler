@@ -481,166 +481,26 @@ void fiska::run_global_tests() {
         ByteVec as_encoding = utils::strmap_get(encodings, key);
 
 
-        fmt::print("Instr = {}; as encoding = ", translate_x86_instr_to_gas_syntax(instr));
+        //fmt::print("Instr = {}; as encoding = ", translate_x86_instr_to_gas_syntax(instr));
 
 
-        fmt::print("[");
-        for (auto [idx, byte] : as_encoding | vws::enumerate) {
-            fmt::print("{:#04x}", byte);
-            fmt::print("{}", u32(idx) == as_encoding.size() - 1 ? "" : ", ");
-        }
-        fmt::print("]");
+        //fmt::print("[");
+        //for (auto [idx, byte] : as_encoding | vws::enumerate) {
+        //    fmt::print("{:#04x}", byte);
+        //    fmt::print("{}", u32(idx) == as_encoding.size() - 1 ? "" : ", ");
+        //}
+        //fmt::print("]");
 
-        fmt::print("; fiska encoding = ");
-        fmt::print("[");
-        for (auto [idx, byte] : instr->encoding_ | vws::enumerate) {
-            fmt::print("{:#04x}", byte);
-            fmt::print("{}", u32(idx) == instr->encoding_.size() - 1 ? "" : ", ");
-        }
-        fmt::print("]\n");
+        //fmt::print("; fiska encoding = ");
+        //fmt::print("[");
+        //for (auto [idx, byte] : instr->encoding_ | vws::enumerate) {
+        //    fmt::print("{:#04x}", byte);
+        //    fmt::print("{}", u32(idx) == instr->encoding_.size() - 1 ? "" : ", ");
+        //}
+        //fmt::print("]\n");
         assert(as_encoding == instr->encoding_, "Instruction #{} assembles wrong.", idx);
     }
+
+    fmt::print("instructions tested: {}\n", main_test_proc->instructions_.size());
 }
 
-//void fiska::run_global_tests() {
-//    using enum RI;
-//    using enum BW;
-//    using enum Mem::Scale;
-//
-//    Vec<i64> mem_disps = {0, 0x11223344, 0x11, 0x1122, 0x11223, -0x11223344, -0x11, -0x112};
-//    Vec<i64> moffs_values = {0x1122334455, 0x11223344, 0x1122, 0x11};
-//    Vec<i64> imms_values = {0x11223344, 0x1122334455667788, 0x1122, 0x112, 0x11, 0, -1, -2, -10};
-//
-//    Vec<Reg> regs;
-//    Vec<Mem> mems;
-//    Vec<Moffs> moffs;
-//    Vec<Imm> imms;
-//    Vec<X86Op> all_x86_operands;
-//
-//    //================================================
-//    // Gather all possible registers.
-//    //================================================
-//    for (BW w : {B8, B16, B32, B64}) {
-//        // GP registers.
-//        for (u32 ri = +Rax; ri <= +R15; ++ri) {
-//            Reg reg{w, RI(ri)};
-//            if (reg.is_valid()) { regs.push_back(reg); }
-//        }
-//
-//        Reg reg{w, RI::Rip};
-//        if (reg.is_valid()) { regs.push_back(reg); }
-//
-//        // Segment registers.
-//        for (u32 ri = +Es; ri <= +Gs; ++ri) {
-//            Reg reg{w, RI(ri)};
-//            if (reg.is_valid()) { regs.push_back(reg); }
-//        }
-//
-//        // Control and debug registers.
-//        for (u32 ri = +Cr0; ri <= +Dbg15; ++ri) {
-//            Reg reg{w, RI(ri)};
-//            if (reg.is_valid()) { regs.push_back(reg); }
-//        }
-//    }
-//
-//    fmt::print("regs.size() = {}\n", regs.size());
-//
-//    //================================================
-//    // Gather all possible memory references.
-//    //================================================
-//    // MK::BaseDisp
-//    for (BW w : {B8, B16, B32, B64}) {
-//        for (Reg r : regs) {
-//            Mem mem{w, r, std::nullopt, std::nullopt, std::nullopt};
-//            if (mem.is_valid()) { mems.push_back(mem); }
-//        }
-//    }
-//    // MK::BaseIndexDisp
-//    for (BW w : {B8, B16, B32, B64}) {
-//        for (Reg base : regs) {
-//            for (Mem::Scale s : {One, Two, Four, Eight}) {
-//                for (Reg index : regs) {
-//                    Mem mem{w, base, index, s, std::nullopt};
-//                    if (mem.is_valid()) { mems.push_back(mem); }
-//                }
-//            }
-//        }
-//    }
-//    // MK::IndexDisp
-//    for (BW w : {B8, B16, B32, B64}) {
-//        for (Mem::Scale s : {One, Two, Four, Eight}) {
-//            for (Reg index : regs) {
-//                for (i64 disp : mem_disps) {
-//                    Mem mem{w, std::nullopt, index, s, disp ? Opt<i64>{disp} : std::nullopt};
-//                    if (mem.is_valid()) { mems.push_back(mem); }
-//                }
-//            }
-//        }
-//    }
-//    // MK::DispOnly
-//    for (BW w : {B8, B16, B32, B64}) {
-//        for (i64 disp : mem_disps) {
-//            if (not disp) { continue; }
-//
-//            Mem mem{w, std::nullopt, std::nullopt, std::nullopt, disp ? Opt<i64>{disp} : std::nullopt};
-//            if (mem.is_valid()) { mems.push_back(mem); }
-//        }
-//    }
-//
-//    //================================================
-//    // Gather Random offset values.
-//    //================================================
-//    for (BW w : {B8, B16, B32, B64}) {
-//        for (i64 mo : moffs_values) {
-//            moffs.push_back(Moffs{w, mo});
-//        }
-//    }
-//
-//    //================================================
-//    // Gather Random immediate values.
-//    //================================================
-//    for (BW w : {B8, B16, B32, B64}) {
-//        for (i64 imm : imms_values) {
-//            imms.push_back(Imm{w, imm});
-//        }
-//    }
-//
-//    //================================================
-//    // Populate the container of all x86 operands.
-//    //================================================
-//    for (Reg r : regs) { all_x86_operands.push_back({r}); } 
-//    for (Mem m : mems) { all_x86_operands.push_back({m}); }
-//    for (Moffs mo : moffs) { all_x86_operands.push_back({mo}); }
-//    for (Imm imm : imms) { all_x86_operands.push_back({imm}); }
-//
-//    
-//    
-//    
-//    
-//
-//    
-//    
-//    
-//
-//    
-//    
-//
-//    
-//
-//    u64 ctr = 0;
-//    for (Reg dst : regs) {
-//        if (ctr >= 10) { break; }
-//        for (Reg src : regs) {
-//            if (not as.is_valid_instr<X86IK::Mov>({{dst}, {src}})) {
-//                continue;
-//            }
-//
-//            ctr++;
-//            if (ctr >= 10) { break; }
-//
-//            std::ignore = new (main_test_proc) Mov({dst}, {src}, as.encode<X86IK::Mov>({{dst}, {src}}));
-//        }
-//    }
-//
-//    ModulePrinter::print_module(test_mod.get());
-//}
