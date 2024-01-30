@@ -993,6 +993,13 @@ struct Pat {
 
     static constexpr auto is_b16_opsz(Span<const X86Op> ops) -> i1 { return +b16_opsz; }
 
+    static constexpr auto instances() -> Buffer<Buffer<X86Op>> {
+        auto cartesian_product = vws::cartesian_product(X86Ops::instances()...);
+        auto sz = std::distance(std::begin(cartesian_product), std::end(cartesian_product));
+
+        Buf<Buf<X86Op>> ret(sz, Buf<X86Op>{pat_sz});
+    };
+
     static constexpr auto match(Span<const X86Op> ops) -> bool {
         using enum BW;
         using enum RI;
