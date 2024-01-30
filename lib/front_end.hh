@@ -998,6 +998,10 @@ struct Pat {
         auto sz = std::distance(std::begin(cartesian_product), std::end(cartesian_product));
 
         Buf<Buf<X86Op>> ret(sz, Buf<X86Op>{pat_sz});
+
+        for (const auto& t : cartesian_product) {
+            // How to transform a tuple to an array: https://stackoverflow.com/questions/10604794/convert-stdtuple-to-stdarray-c11
+        }
     };
 
     static constexpr auto match(Span<const X86Op> ops) -> bool {
