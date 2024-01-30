@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <string_view>
+#include <random>
 
 namespace fiska {
 
@@ -28,23 +29,32 @@ auto str_of_bw(BW bit_width) -> StrRef;
 // Register Ids.
 // Never change the declaration order or the values of this enumeration.
 enum struct RI {
-    Rax = 0,  Es = 16, Cr0 = 24,  Dbg0 = 40, 
-    Rcx = 1,  Cs = 17, Cr1 = 25,  Dbg1 = 41, 
-    Rdx = 2,  Ss = 18, Cr2 = 26,  Dbg2 = 42, 
-    Rbx = 3,  Ds = 19, Cr3 = 27,  Dbg3 = 43, 
-    Rsp = 4,  Fs = 20, Cr4 = 28,  Dbg4 = 44, 
-    Rbp = 5,  Gs = 21, Cr5 = 29,  Dbg5 = 45, 
-    Rip = 0x1ffd,
-    Rsi = 6,           Cr6 = 30,  Dbg6 = 46, 
-    Rdi = 7,           Cr7 = 31,  Dbg7 = 47, 
-    R8 = 8,            Cr8 = 32,  Dbg8 = 48,  
-    R9 = 9,            Cr9 = 33,  Dbg9 = 49,
-    R10 = 10,          Cr10 = 34, Dbg10 = 50,
-    R11 = 11,          Cr11 = 35, Dbg11 = 51,
-    R12 = 12,          Cr12 = 36, Dbg12 = 52,
-    R13 = 13,          Cr13 = 37, Dbg13 = 53,
-    R14 = 14,          Cr14 = 38, Dbg14 = 54,
-    R15 = 15,          Cr15 = 39, Dbg15 = 55,
+    Rax = 0,      Es = 16, Cr0 = 24,  Dbg0 = 40, 
+    Rcx = 1,      Cs = 17, Cr1 = 25,  Dbg1 = 41, 
+    Rdx = 2,      Ss = 18, Cr2 = 26,  Dbg2 = 42, 
+    Rbx = 3,      Ds = 19, Cr3 = 27,  Dbg3 = 43, 
+    Rsp = 4,      Fs = 20, Cr4 = 28,  Dbg4 = 44, 
+    Rbp = 5,      Gs = 21, Cr5 = 29,  Dbg5 = 45, 
+    Rsi = 6,               Cr6 = 30,  Dbg6 = 46, 
+    Rdi = 7,               Cr7 = 31,  Dbg7 = 47, 
+    R8 = 8,                Cr8 = 32,  Dbg8 = 48,  
+    R9 = 9,                Cr9 = 33,  Dbg9 = 49,
+    R10 = 10,              Cr10 = 34, Dbg10 = 50,
+    R11 = 11,              Cr11 = 35, Dbg11 = 51,
+    R12 = 12,              Cr12 = 36, Dbg12 = 52,
+    R13 = 13,              Cr13 = 37, Dbg13 = 53,
+    R14 = 14,              Cr14 = 38, Dbg14 = 54,
+    R15 = 15,              Cr15 = 39, Dbg15 = 55,
+    // Rsp
+    Rah = (1 << 10) | 4,
+    // Rbp
+    Rch = (1 << 10) | 5,
+    // Rsi
+    Rdh = (1 << 10) | 6,
+    // Rdi
+    Rbh = (1 << 10) | 7,
+    // Rbp 
+    Rip = (1 << 11) | 5,
 };
 auto str_of_ri(RI id) -> StrRef;
 
@@ -149,44 +159,10 @@ struct Error {
     } data_{};
 };
 
-union Sib {
-    struct {
-        u8 base: 3{};
-        u8 index: 3{};
-        u8 scale: 2{};
-    };
-    u8 raw;
-};
-
-union ModRM {
-    struct {
-        u8 rm: 3{};
-        u8 reg: 3{};
-        u8 mod: 2{};
-    };
-    u8 raw;
-};
-
-union Rex {
-    struct {
-        // Mod_Rm::r/m or Sib::Base extension or opcode extension.
-        u8 b: 1{};
-        // Sib::Index extension.
-        u8 x: 1{};
-        // Mod_Rm::reg extension.
-        u8 r: 1{};
-        // Operand size override.
-        u8 w: 1{};
-        u8 mod: 4 {0b0100}; 
-    };
-    u8 raw;
-
-    auto is_required() const -> bool { return b or x or r or w; }
-};
-
 struct Reg {
     BW bit_width_{};
     RI id_{};
+    i1 new_8_bit_reg_{false};
 
     auto index() const -> u8 { return +id_ & 0x7; }
     auto requires_ext() const -> bool {
@@ -195,12 +171,14 @@ struct Reg {
             or (+id_ >= +RI::Dbg8 and +id_ <= +RI::Dbg15);
     }
     auto kind() const -> RK {
-        if (+id_ >= +RI::Rax and +id_ <= +RI::R15) { return RK::Gp; }
-        if (+id_ >= +RI::Es and +id_ <= +RI::Gs) { return RK::Seg; }
-        if (+id_ >= +RI::Cr0 and +id_ <= +RI::Cr15) { return RK::Ctrl; }
-        if (+id_ >= +RI::Dbg0 and +id_ <= +RI::Dbg15) { return RK::Dbg; }
+        using enum RI;
+        if ((::is<Rip, Rah, Rch, Rdh, Rbh>(id_)) or (+id_ >= +Rax and +id_ <= +R15)) { return RK::Gp; }
+        if (+id_ >= +Es and +id_ <= +Gs) { return RK::Seg; }
+        if (+id_ >= +Cr0 and +id_ <= +Cr15) { return RK::Ctrl; }
+        if (+id_ >= +Dbg0 and +id_ <= +Dbg15) { return RK::Dbg; }
         unreachable("Unknown register id (RI) encountered.");
     }
+
 };
 
 struct Mem {
@@ -216,6 +194,27 @@ struct Mem {
     Opt<Reg> index_reg_{std::nullopt};
     Opt<Scale> scale_{std::nullopt};
     Opt<i64> disp_{std::nullopt};
+
+    [[nodiscard]] auto disp() const -> Opt<i64> {
+        using enum RI;
+
+        switch (kind()) {
+        case MK::BaseDisp:
+        case MK::BaseIndexDisp: {
+            if (::is<Rbp, R13>(base_reg_->id_)) {
+                return disp_.value_or(0);
+            }
+            break;
+        }
+        case MK::IndexDisp:
+        case MK::DispOnly: {
+            return disp_.value_or(0);
+        }
+        } // switch
+
+        if (disp_ and *disp_ == 0) { return std::nullopt; }
+        return disp_;
+    }
 
     [[nodiscard]] auto kind() const -> MK;
 
@@ -262,6 +261,294 @@ struct X86Op {
     auto modrm_encoding() const -> u8;
     auto modrm_mod() const -> u8;
     auto bit_width() const -> BW;
+};
+
+// Concept identifying all the x86 operand classes below.
+template <typename T>
+concept IsX86OpClass = requires(X86Op op) {
+    { T::match(op) } -> std::same_as<bool>;
+};
+//=====================================================
+// Register classes.
+//=====================================================
+template <auto... args>
+struct r;
+
+template <BW bit_width>
+struct r<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>() 
+            and op.as<Reg>().bit_width_ == bit_width
+            and op.as<Reg>().kind() == RK::Gp;
+    }
+
+    static constexpr auto instances() -> Vec<X86Op> {
+        using enum RI;
+
+        Vec<X86Op> ret;
+
+        for (u32 ri = +Rax; ri <= +R15; ++ri) {
+            ret.push_back({ Reg{bit_width, RI(ri)} });
+        }
+
+        // Add |Rip| if the register is not an 8-bit register.
+        if (bit_width != BW::B8) {
+            ret.push_back({ Reg{bit_width, Rip} });
+        }
+
+        if (bit_width == BW::B8) {
+            ret.push_back({ Reg{BW::B8, Rah} });
+            ret.push_back({ Reg{BW::B8, Rch} });
+            ret.push_back({ Reg{BW::B8, Rdh} });
+            ret.push_back({ Reg{BW::B8, Rbh} });
+        }
+
+        return ret;
+    }
+};
+
+// FIXME(miloudi): Non GP registers usually have a fixed size. You don't really
+// need to specify their bitwidth.
+template <BW bit_width, RK kind>
+struct r<bit_width, kind> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Reg>()
+            and op.as<Reg>().bit_width_ == bit_width
+            and op.as<Reg>().kind() == kind;
+    }
+
+    static constexpr auto instances() -> Vec<X86Op> {
+        using enum RI;
+
+        // Use the r<BW> specialization if you want a GP register class.
+        assert(kind != RK::Gp);
+
+        Vec<X86Op> ret;
+
+        auto [start_ri, end_ri] = [&] {
+            switch (kind) {
+            case RK::Seg: return std::make_pair(+Es, +Gs);
+            case RK::Ctrl: return std::make_pair(+Cr0, +Cr15);
+            case RK::Dbg: return std::make_pair(+Dbg0, +Dbg15);
+            case RK::Gp: unreachable("Use the r<BW> specialization if you want a GP register class.");
+            } // switch
+            unreachable();
+        }();
+
+        for (u32 ri = start_ri; ri <= end_ri; ++ri) {
+            ret.push_back({ Reg{bit_width, RI(ri)} });
+        }
+
+        return ret;
+    }
+};
+
+template <BW bit_width, RI id>
+struct r<bit_width, id> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        if (not op.is<Reg>()) { return false; }
+
+        const Reg& reg = op.as<Reg>();
+        return reg.bit_width_ == bit_width
+            and reg.id_ == id;
+    }
+
+    static constexpr auto instances() -> Vec<X86Op> {
+        return { {Reg{bit_width, id}} };
+    }
+};
+
+//=====================================================
+// Memory classes.
+//=====================================================
+template <auto... args>
+struct m;
+
+template <BW bit_width>
+struct m<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Mem>() and op.as<Mem>().bit_width_ == bit_width;
+    }
+
+    static constexpr auto instances() -> Vec<X86Op> {
+        using enum BW;
+        using enum RI;
+        using enum Mem::Scale;
+
+        Vec<X86Op> ret;
+        std::mt19937 gen(std::random_device{}());
+
+        std::uniform_int_distribution<> disp_8bits(std::numeric_limits<i8>::min(),
+                std::numeric_limits<i8>::max());
+
+        std::uniform_int_distribution<> disp_32bits(std::numeric_limits<i32>::min(),
+                std::numeric_limits<i32>::max());
+
+        auto get_random_disp = [&]() {
+            // 75% of memory references will have a displacement.
+            if ((gen() % 100) < 75) {
+                return Opt<int>{gen() & 1 ? disp_8bits(gen) : disp_32bits(gen)};
+            }
+            return static_cast<Opt<int>>(std::nullopt);
+        };
+
+        Vec<X86Op> gp_regs = r<B64>::instances();
+
+        // MK::BaseDisp
+        for (const X86Op& op : gp_regs) {
+            ret.push_back({ Mem{bit_width, op.as<Reg>(), std::nullopt, std::nullopt, get_random_disp()} });
+        }
+        // MK::BaseIndexDisp
+        for (const X86Op& base : gp_regs) {
+            if (::is<Rip>(base.as<Reg>().id_)) { continue; }
+            for (Mem::Scale s : {One, Two, Four, Eight}) {
+                for (const X86Op& index : gp_regs) {
+                    if (::is<Rip, Rsp>(index.as<Reg>().id_)) { continue; }
+                    ret.push_back({ Mem{bit_width, base.as<Reg>(), index.as<Reg>(), s, get_random_disp()} });
+                }
+            }
+        }
+        // MK::IndexDisp
+        for (const X86Op& index : gp_regs) {
+            for (Mem::Scale s : {One, Two, Four, Eight}) {
+                if (::is<Rip, Rsp>(index.as<Reg>().id_)) { continue; }
+                ret.push_back({ Mem{bit_width, std::nullopt, index.as<Reg>(), s, get_random_disp()} });
+            }
+        }
+        // MK::DispOnly
+        for (u32 i = 0; i < 10; ++i) {
+            ret.push_back({ Mem{bit_width, std::nullopt, std::nullopt, std::nullopt, get_random_disp().value_or(0)} });
+        }
+
+        return ret;
+    }
+};
+
+//=====================================================
+// Immediate classes.
+//=====================================================
+template <auto... args>
+struct i;
+
+template <BW bit_width>
+struct i<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Imm>() 
+            and op.as<Imm>().bit_width_ == bit_width;
+    }
+
+    static constexpr auto instances(i64 n_inst = 10) -> Vec<X86Op> {
+        Vec<X86Op> ret;
+        // Generate random numbers that fit in |bit_width| bits.
+        i64 mn = -(1 << (+bit_width - 1));
+        i64 mx = (1 << (+bit_width - 1)) - 1;
+
+        std::mt19937 gen(std::random_device{}());
+        std::uniform_int_distribution<> imms(mn, mx);
+        while (n_inst--) { ret.push_back({ Imm{bit_width, imms(gen)} }); }
+        return ret;
+    }
+};
+
+//=====================================================
+// Memory offset classes.
+//=====================================================
+template <auto... args>
+struct mo;
+
+template <BW bit_width>
+struct mo<bit_width> {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return op.is<Moffs>() 
+            and op.as<Moffs>().bit_width_ == bit_width;
+    }
+
+    static constexpr auto instances(i64 n_inst = 10) -> Vec<X86Op> {
+        Vec<X86Op> ret;
+
+        std::mt19937 gen(std::random_device{}());
+        std::uniform_int_distribution<> moffsets(0, std::numeric_limits<u64>::max());
+        while (n_inst--) { ret.push_back({ Moffs{bit_width, moffsets(gen)} }); }
+        return ret;
+    }
+};
+
+//====================================================================
+// X86OpClass Any combinator. 
+// This combinator will be satisfied if the X86Op passed
+// to it as an argument satisfies any of the X86OpClasses passed as 
+// template arguments.
+//====================================================================
+template <IsX86OpClass... X86OpClass>
+struct Any {
+    static constexpr auto match(const X86Op& op) -> bool {
+        return (X86OpClass::match(op) or ...);
+    }
+
+    static constexpr auto instances() -> Vec<X86Op> {
+        // Concatenate the instances of the underlying operands.
+        Vec<X86Op> ret;
+
+        auto helper = [&](const Vec<X86Op>& instances) {
+            // TODO(miloudi): reserve memory before you extend the vector.
+            ret.insert(ret.end(), instances.begin(), instances.end());
+        };
+
+        (helper(X86OpClass::instances()), ...);
+        return ret;
+    }
+};
+
+
+union Sib {
+    struct {
+        u8 base: 3{};
+        u8 index: 3{};
+        u8 scale: 2{};
+    };
+    u8 raw;
+};
+
+union ModRM {
+    struct {
+        u8 rm: 3{};
+        u8 reg: 3{};
+        u8 mod: 2{};
+    };
+    u8 raw;
+};
+
+union Rex {
+    struct {
+        // Mod_Rm::r/m or Sib::Base extension or opcode extension.
+        u8 b: 1{};
+        // Sib::Index extension.
+        u8 x: 1{};
+        // Mod_Rm::reg extension.
+        u8 r: 1{};
+        // Operand size override.
+        u8 w: 1{};
+        u8 mod: 4 {0b0100}; 
+    };
+    u8 raw;
+
+    // TODO(miloudi): Make this function take in the list of operands and 
+    // check whether we have any of the new 8-bit registers. If we do, then we need
+    // to output the REX prefix with the mod alone, meaning we need to return true.
+    auto is_required(Span<const X86Op> ops) const -> bool {
+        using enum BW;
+        using enum RI;
+        using new_low_byte_regs = Any< 
+            ::fiska::r<B8, Rsp>, 
+            ::fiska::r<B8, Rbp>,
+            ::fiska::r<B8, Rsi>,
+            ::fiska::r<B8, Rdi>
+        >;
+
+        if (w or r or x or b) { return true; }
+
+        return rgs::any_of(ops, new_low_byte_regs::match);
+    }
 };
 
 template <typename T>
@@ -371,7 +658,6 @@ struct Ctx {
     static constexpr u8 ksib_marker = 0b100;
     static constexpr u8 ksib_no_index_reg = 0b100;
     static constexpr u8 ksib_no_base_reg = 0b101;
-
 };
 
 struct Lexer {
@@ -631,98 +917,6 @@ struct ByteStream {
     }
 };
 
-// Concept identifying all the x86 operand classes below.
-template <typename T>
-concept IsX86OpClass = requires(X86Op op) {
-    { T::match(op) } -> std::same_as<bool>;
-};
-//=====================================================
-// Register classes.
-//=====================================================
-template <auto... args>
-struct r;
-
-template <BW bit_width>
-struct r<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Reg>() 
-            and op.as<Reg>().bit_width_ == bit_width
-            and op.as<Reg>().kind() == RK::Gp;
-    }
-};
-
-template <BW bit_width, RK kind>
-struct r<bit_width, kind> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Reg>()
-            and op.as<Reg>().bit_width_ == bit_width 
-            and op.as<Reg>().kind() == kind;
-    }
-};
-
-template <BW bit_width, RI id>
-struct r<bit_width, id> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Reg>()
-            and op.as<Reg>().bit_width_ == bit_width 
-            and op.as<Reg>().id_ == id;
-    }
-};
-
-//=====================================================
-// Memory classes.
-//=====================================================
-template <auto... args>
-struct m;
-
-template <BW bit_width>
-struct m<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Mem>() 
-            and op.as<Mem>().bit_width_ == bit_width;
-    }
-};
-
-//=====================================================
-// Immediate classes.
-//=====================================================
-template <auto... args>
-struct i;
-
-template <BW bit_width>
-struct i<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Imm>() 
-            and op.as<Imm>().bit_width_ == bit_width;
-    }
-};
-
-//=====================================================
-// Memory offset classes.
-//=====================================================
-template <auto... args>
-struct mo;
-
-template <BW bit_width>
-struct mo<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return op.is<Moffs>() 
-            and op.as<Moffs>().bit_width_ == bit_width;
-    }
-};
-
-//====================================================================
-// X86OpClass Any combinator. 
-// This combinator will be satisfied if the X86Op passed
-// to it as an argument satisfies any of the X86OpClasses passed as 
-// template arguments.
-//====================================================================
-template <IsX86OpClass... X86OpClass>
-struct Any {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return (X86OpClass::match(op) or ...);
-    }
-};
 
 // Concept identifying x86 operand patterns.
 template <typename T>
@@ -732,11 +926,50 @@ concept IsInstrPat = requires(T) {
 //====================================================================
 // Patterns of x86 operands. 
 //====================================================================
-template <IsX86OpClass... X86Ops>
+enum struct Rex_W : i1 {
+    Yes = true,
+    No = false
+};
+
+enum struct B16OpSz : i1 {
+    Yes = true,
+    No = false
+};
+
+template <Rex_W w, B16OpSz b16_opsz, IsX86OpClass... X86Ops>
 struct Pat {
+    static constexpr auto needs_rex_w(Span<const X86Op> ops) -> i1 { return +w; }
+
+    static constexpr auto is_b16_opsz(Span<const X86Op> ops) -> i1 { return +b16_opsz; }
+
     static constexpr auto match(Span<const X86Op> ops) -> bool {
         static constexpr usz pat_sz = sizeof...(X86Ops);
         if (pat_sz != ops.size()) { return false; }
+        using enum BW;
+
+        // TODO(miloudi): this doesn't work. Try to have a pattern encoding all 
+        // x86ops that require an extension and then write the logic here.
+        using high_byte_regs = Any<
+            r<B8, RI::Rah>,
+            r<B8, RI::Rch>,
+            r<B8, RI::Rdh>,
+            r<B8, RI::Rbh>
+        >;
+        using rex_byte_regs = Any<
+            r<B8, RI::Rsp>,
+            r<B8, RI::Rbp>,
+            r<B8, RI::Rsi>,
+            r<B8, RI::Rdi>
+        >;
+        i1 has_high_byte_regs = false;
+        i1 has_rex_byte_regs = false;
+
+        for (u32 idx = 0; idx < ops.size(); ++idx) {
+            has_high_byte_regs |= high_byte_regs::match(ops[idx]);
+            has_rex_byte_regs |= rex_byte_regs::match(ops[idx]);
+        }
+
+        if (has_high_byte_regs and has_rex_byte_regs) { return false; }
 
         u64 op_idx = 0;
         return (X86Ops::match(ops[op_idx++]) and ...);
@@ -748,13 +981,21 @@ struct Pat {
 //====================================================================
 template <IsInstrPat... Pattern>
 struct Or {
+    static constexpr auto needs_rex_w(Span<const X86Op> ops) -> i1 {
+        return ((Pattern::match(ops) and Pattern::needs_rex_w(ops)) or ...);
+    }
+
+    static constexpr auto is_b16_opsz(Span<const X86Op> ops) -> i1 {
+        return ((Pattern::match(ops) and Pattern::is_b16_opsz(ops)) or ...);
+    }
+
     static constexpr auto match(Span<const X86Op> ops) -> bool {
         return (Pattern::match(ops) or ...);
     }
 };
 
 //====================================================================
-// Emitters aka Instruction Encoding formats. 
+// Emitters (Instruction Encoding formats.)
 //====================================================================
 template <OpEn encoding>
 struct Emitter;
@@ -762,74 +1003,70 @@ struct Emitter;
 template <>
 struct Emitter<OpEn::MR> {
     GCC_DIAG_IGNORE_PUSH(-Wconversion)
-    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) -> ByteVec {
         using enum BW;
-        using r64 = r<B64>;
-        using r32 = r<B32>;
-        using rm16 = Any<r<B16>, m<B16>>;
-        using rm64 = Any<r<B64>, m<B64>>;
-
-        using cr = r<B64, RK::Ctrl>;
-        using dbg = r<B64, RK::Dbg>;
-        using sreg = r<B16, RK::Seg>;
-
-        using ctrl_or_dbg_mov = 
-            Or<
-                Pat<Any<cr, dbg>, r64>,
-                Pat<r64, Any<cr, dbg>>
-            >;
-        using seg_mov =
-            Or<
-                Pat<sreg, Any<rm16, rm64>>,
-                Pat<Any<rm16, r32, r64>, sreg>
-            >;
-
-                        
                        
         assert(ops.size() == 2);
         assert((ops[0].is<Reg, Mem>() and ops[1].is<Reg>()));
 
+        const X86Op& rm = ops[0];
+        const X86Op& r = ops[1];
+
         ByteStream bs{};
 
         ModRM modrm {
-            .rm = ops[0].modrm_encoding(),
-            .reg = ops[1].modrm_encoding(),
-            // Cute hack.
-            .mod = std::min<u8>(ops[0].modrm_mod(), ops[1].modrm_mod()),
+            .rm = rm.modrm_encoding(),
+            .reg = r.modrm_encoding(),
+            .mod = u8(rm.modrm_mod() & r.modrm_mod()),
         };
 
         Rex rex {
-            .b = ops[0].is<Reg>() and ops[0].as<Reg>().requires_ext(),
+            .b = rm.is<Reg>() and rm.as<Reg>().requires_ext(),
             .x = 0,
-            .r = ops[1].is<Reg>() and ops[1].as<Reg>().requires_ext(),
-            .w = ctrl_or_dbg_mov::match(ops) 
-                ? bool(0)
-                : std::max(+ops[0].bit_width(), +ops[1].bit_width()) == +B64
+            .r = r.is<Reg>() and r.as<Reg>().requires_ext(),
+            .w = rex_w
         };
 
         Opt<u8> sib{std::nullopt};
         Opt<i64> disp{std::nullopt};
+        BW disp_sz{};
 
-        if (ops[0].is<Mem>() or ops[1].is<Mem>()) {
-            const Mem& mem = ops[0].is<Mem>() ? ops[0].as<Mem>() : ops[1].as<Mem>();
+        if (rm.is<Mem>()) {
+            const Mem& mem = rm.as<Mem>();
 
             sib = mem.sib();
-            disp = mem.disp_;
+            disp = mem.disp();
+
+            disp_sz = utils::fits_in_b8(disp.value_or(0)) ? B8 : B32;
+
+            switch (mem.kind()) {
+            case MK::BaseDisp: {
+                if (::is<RI::Rip>(mem.base_reg_->id_)) {
+                    disp_sz = B32;
+                    disp = disp.value_or(0);
+                }
+                break;
+            }
+            case MK::BaseIndexDisp:
+                break;
+
+            case MK::IndexDisp:
+            case MK::DispOnly:
+                disp_sz = B32;
+                disp = disp.value_or(0);
+                break;
+            } // switch
 
             rex.b = mem.base_reg_ and mem.base_reg_->requires_ext();
             rex.x = mem.index_reg_ and mem.index_reg_->requires_ext();
         }
 
-        bool need_16_bit_prefix = seg_mov::match(ops)
-            ? /*non segment register*/ ::is<B16>(ops[0].bit_width()) 
-            : is<B16>(ops[0].bit_width()) or is<B16>(ops[1].bit_width());
-
-        bs.append_if(need_16_bit_prefix, B8, Ctx::k16_bit_prefix)
-          .append_if(rex.is_required(), B8, rex.raw)
+        bs.append_if(b16_opsz, B8, Ctx::k16_bit_prefix)
+          .append_if(rex.is_required(ops), B8, rex.raw)
           .append(std::move(opcode))
           .append(B8, modrm.raw)
           .append_if(sib, B8, *sib)
-          .append_if(disp, utils::fits_in_b8(*disp) ? B8 : B32, u64(*disp));
+          .append_if(disp, disp_sz, u64(*disp));
 
         return bs.out_;
     }
@@ -838,18 +1075,18 @@ struct Emitter<OpEn::MR> {
 
 template <>
 struct Emitter<OpEn::RM> {
-    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) -> ByteVec {
         assert(ops.size() == 2);
         assert((ops[0].is<Reg>() and ops[1].is<Reg, Mem>()));
 
         // Reverse the order of the operands and run the OpEn::MR routine.
-        return Emitter<OpEn::MR>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]});
+        return Emitter<OpEn::MR>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]}, rex_w, b16_opsz);
     }
 };
 
 template <>
 struct Emitter<OpEn::FD> {
-    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) -> ByteVec {
         using enum BW;
 
         assert(ops.size() == 2);
@@ -858,11 +1095,11 @@ struct Emitter<OpEn::FD> {
         ByteStream bs{};
 
         Rex rex {
-            .w = is<B64>(ops[0].bit_width())
+            .w = rex_w
         };
 
-        bs.append_if(is<B16>(ops[0].bit_width()), B8, Ctx::k16_bit_prefix)
-          .append_if(rex.is_required(), B8, rex.raw)
+        bs.append_if(b16_opsz, B8, Ctx::k16_bit_prefix)
+          .append_if(rex.is_required(ops), B8, rex.raw)
           .append(std::move(opcode))
           .append(B64, ops[1].as<Moffs>().as<u64>());
 
@@ -872,17 +1109,17 @@ struct Emitter<OpEn::FD> {
 
 template <>
 struct Emitter<OpEn::TD> {
-    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) -> ByteVec {
         assert(ops.size() == 2);
         assert(ops[0].is<Moffs>() and ops[1].is<Reg>());
 
-        return Emitter<OpEn::FD>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]});
+        return Emitter<OpEn::FD>::emit(std::move(opcode), Vec<X86Op>{ops[1], ops[0]}, rex_w, b16_opsz);
     }
 };
 
 template <>
 struct Emitter<OpEn::OI> {
-    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) -> ByteVec {
         using enum BW; 
 
         assert(ops.size() == 2);
@@ -892,13 +1129,13 @@ struct Emitter<OpEn::OI> {
 
         Rex rex {
             .b = ops[0].as<Reg>().requires_ext(), 
-            .w = is<B64>(ops[0].bit_width()),
+            .w = rex_w
         };
 
         opcode.back() |= ops[0].as<Reg>().index();
 
-        bs.append_if(is<B16>(ops[0].bit_width()), B8, Ctx::k16_bit_prefix)
-          .append_if(rex.is_required(), B8, rex.raw)
+        bs.append_if(b16_opsz, B8, Ctx::k16_bit_prefix)
+          .append_if(rex.is_required(ops), B8, rex.raw)
           .append(std::move(opcode))
           .append(ops[1].bit_width(), ops[1].as<Imm>().as<u64>());
 
@@ -909,7 +1146,7 @@ struct Emitter<OpEn::OI> {
 template <>
 struct Emitter<OpEn::MI> {
     GCC_DIAG_IGNORE_PUSH(-Wconversion)
-    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops) -> ByteVec {
+    static constexpr auto emit(ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) -> ByteVec {
         using enum BW;
 
         assert(ops.size() == 2);
@@ -927,7 +1164,7 @@ struct Emitter<OpEn::MI> {
 
         Rex rex {
             .b = ops[0].is<Reg>() ? ops[0].as<Reg>().requires_ext() : bool(0),
-            .w = is<B64>(ops[0].bit_width())
+            .w = rex_w
         };
 
         if (ops[0].is<Mem>()) {
@@ -935,8 +1172,8 @@ struct Emitter<OpEn::MI> {
             disp = ops[0].as<Mem>().disp_;
         }
 
-        bs.append_if(is<B16>(ops[0].bit_width()), B8, Ctx::k16_bit_prefix)
-          .append_if(rex.is_required(), B8, rex.raw)
+        bs.append_if(b16_opsz, B8, Ctx::k16_bit_prefix)
+          .append_if(rex.is_required(ops), B8, rex.raw)
           .append(std::move(opcode))
           .append(B8, modrm.raw)
           .append_if(sib, B8, *sib)
@@ -951,23 +1188,28 @@ struct Emitter<OpEn::MI> {
 // TODO(miloudi): Explain what this type does.
 struct InstrExpr {
     using MatchFunction = bool(*)(Span<const X86Op>);
-    using EmitFunction = ByteVec(*)(ByteVec, Span<const X86Op>);
+    using RexWFunction = bool(*)(Span<const X86Op>);
+    using B16OpSzOverrideFunction = bool(*)(Span<const X86Op>);
+    using EmitFunction = ByteVec(*)(ByteVec, Span<const X86Op>, i1 rex_w, i1 b16_opsz);
 
     MatchFunction match_{};
     EmitFunction emit_{};
     ByteVec opcode_{};
+    RexWFunction rex_w_{};
+    B16OpSzOverrideFunction b16_opsz_{};
 
     template <typename Matcher, typename Emitter>
-    requires requires (ByteVec opcode, Span<const X86Op> ops) {
+    requires requires (ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) {
         { Matcher::match(ops) } -> std::same_as<bool>;
-        { Emitter::emit(opcode, ops) } -> std::same_as<ByteVec>;
+        { Emitter::emit(opcode, ops, rex_w, b16_opsz) } -> std::same_as<ByteVec>;
     }
     /*implicit*/ InstrExpr(ByteVec opcode, Matcher, Emitter) : 
-            match_(Matcher::match), emit_(Emitter::emit), opcode_(opcode)
+            match_(Matcher::match), emit_(Emitter::emit),
+            opcode_(opcode), rex_w_(Matcher::needs_rex_w), b16_opsz_(Matcher::is_b16_opsz)
     {}
 
     auto match(Span<const X86Op> ops) const -> bool { return match_(ops); }
-    auto emit(Span<const X86Op> ops) const -> ByteVec { return emit_(opcode_, ops); }
+    auto emit(Span<const X86Op> ops) const -> ByteVec { return emit_(opcode_, ops, rex_w_(ops), b16_opsz_(ops)); }
 };
 
 struct Assembler {
@@ -986,6 +1228,11 @@ struct Assembler {
 
     template <X86IK ik>
     static auto encode(const Vec<X86Op>& ops) -> ByteVec;
+
+    template <X86IK ik>
+    static auto is_valid_instr(const Vec<X86Op>& ops) -> bool {
+        return not encode<ik>(ops).empty();
+    }
 };
 
 }  // namespace fiska

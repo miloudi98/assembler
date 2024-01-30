@@ -64,6 +64,10 @@ auto translate_x86_instr_to_gas_syntax(const X86Instruction* instr) -> Str;
 
 auto get_encoding_of(Ctx* ctx, const Vec<X86Instruction*>& instructions) -> utils::StringMap<ByteVec>;
 
+// TODO(miloudi): break down this godzilla function to smaller functions once everything is working
+// correctly.
+void run_global_tests();
+
 } // namespace fiska
 
 #endif

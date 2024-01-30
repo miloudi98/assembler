@@ -551,9 +551,9 @@ auto fiska::X86Op::modrm_mod() const -> u8 {
         [[fallthrough]];
     }
     case MK::BaseDisp: {
-        if (::is<Rbp, R13>(mem.base_reg_->id_)) { return mod_based_on_disp(mem.disp_.value_or(0)); }
-        if (not mem.disp_ or ::is<Rip>(mem.base_reg_->id_)) { return Ctx::kmod_mem; }
-        return mod_based_on_disp(mem.disp_.value());
+        if (::is<Rbp, R13>(mem.base_reg_->id_)) { return mod_based_on_disp(mem.disp().value_or(0)); }
+        if (not mem.disp() or ::is<Rip>(mem.base_reg_->id_)) { return Ctx::kmod_mem; }
+        return mod_based_on_disp(mem.disp().value());
     }
     case MK::IndexDisp:
     case MK::DispOnly: {
@@ -733,7 +733,7 @@ auto fiska::Parser::try_parse_x86_operand<Imm>() -> Opt<Imm> {
     expect(TK::Num);
 
     return Imm {
-        .bit_width_ = utils::strmap_get(bit_widths, prev(1).str_),
+        .bit_width_ = utils::strmap_get(bit_widths, prev(1 + has_sign).str_),
         .inner_ = i64_of_str_or_report_error(
                 mod_->ctx_,
                 has_sign ? prev().loc_.merge(prev(1).loc_) : prev().loc_,
@@ -1102,14 +1102,7 @@ using imm16 = i<BW::B16>;
 using imm32 = i<BW::B32>;
 using imm64 = i<BW::B64>;
 
-// TODO(miloudi): Check whether ctrl registers are really 32 bits.
-// I'm pretty sure they are 32 bits, but it's better to provide a reference
-// here in the code.
 using cr = r<BW::B64, RK::Ctrl>;
-
-// TODO(miloudi): Check whether dbg registers are 32 bits.
-// Same thing here, it's good to have a reference here confirming
-// the size of debug registers.
 using dbg = r<BW::B64, RK::Dbg>;
 
 } // namespace
@@ -1125,7 +1118,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0x88 MOV r/m8, r8 -- MR
     mov.push_back({
         {0x88},
-        Pat<rm8, r8>{},
+        Pat<Rex_W::No, B16OpSz::No, rm8, r8>{},
         Emitter<MR>{}
     });
 
@@ -1135,9 +1128,9 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     mov.push_back({
         {0x89},
         Or<
-            Pat<rm16, r16>,
-            Pat<rm32, r32>,
-            Pat<rm64, r64>
+            Pat<Rex_W::No, B16OpSz::Yes, rm16, r16>,
+            Pat<Rex_W::No, B16OpSz::No, rm32, r32>,
+            Pat<Rex_W::Yes, B16OpSz::No, rm64, r64>
         >{},
         Emitter<MR>{}
     });
@@ -1145,7 +1138,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0x8A MOV r8, r/m8 -- RM
     mov.push_back({
         {0x8a},
-        Pat<r8, rm8>{},
+        Pat<Rex_W::No, B16OpSz::No, r8, rm8>{},
         Emitter<RM>{}
     });
 
@@ -1155,9 +1148,9 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     mov.push_back({
         {0x8b},
         Or<
-            Pat<r16, rm16>,
-            Pat<r32, rm32>,
-            Pat<r64, rm64>
+            Pat<Rex_W::No, B16OpSz::Yes, r16, rm16>,
+            Pat<Rex_W::No, B16OpSz::No, r32, rm32>,
+            Pat<Rex_W::Yes, B16OpSz::No, r64, rm64>
         >{},
         Emitter<RM>{}
     });
@@ -1167,7 +1160,13 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0x8C MOV r64/m16, Seg      -- MR
     mov.push_back({
         {0x8c},
-        Pat<Any<rm16, r32, r64>, sreg>{},
+        // TODO(miloudi): Add a rex prefix to the PAT and maybe an operand size override 
+        // here in the pattern. Encode this information here in the pattern.
+        Or<
+            Pat<Rex_W::No, B16OpSz::No, Any<m16, r32>, sreg>,
+            Pat<Rex_W::No, B16OpSz::Yes, r16, sreg>,
+            Pat<Rex_W::Yes, B16OpSz::No, r64, sreg>
+        >{},
         Emitter<MR>{}
     });
 
@@ -1175,14 +1174,18 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0x8E MOV Sreg, r/m64 -- RM
     mov.push_back({
         {0x8e},
-        Pat<sreg, Any<rm16, rm64>>{},
+        Or<
+            Pat<Rex_W::No, B16OpSz::No, sreg, m16>,
+            Pat<Rex_W::No, B16OpSz::Yes, sreg, r16>,
+            Pat<Rex_W::Yes, B16OpSz::No, sreg, rm64>
+        >{},
         Emitter<RM>{}
     });
 
     // 0xA0 MOV AL, moffs8   -- FD
     mov.push_back({
         {0xa0},
-        Pat<r<B8, Rax>, moffs8>{},
+        Pat<Rex_W::No, B16OpSz::No, r<B8, Rax>, moffs8>{},
         Emitter<FD>{}
     });
 
@@ -1192,9 +1195,9 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     mov.push_back({
         {0xa1},
         Or<
-            Pat<r<B16, Rax>, moffs16>,
-            Pat<r<B32, Rax>, moffs32>,
-            Pat<r<B64, Rax>, moffs64>
+            Pat<Rex_W::No, B16OpSz::Yes, r<B16, Rax>, moffs16>,
+            Pat<Rex_W::No, B16OpSz::No, r<B32, Rax>, moffs32>,
+            Pat<Rex_W::Yes, B16OpSz::No, r<B64, Rax>, moffs64>
         >{},
         Emitter<FD>{}
     });
@@ -1202,7 +1205,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0xA2 MOV moffs8, AL -- TD
     mov.push_back({
         {0xa2},
-        Pat<moffs8, r<B8, Rax>>{},
+        Pat<Rex_W::No, B16OpSz::No, moffs8, r<B8, Rax>>{},
         Emitter<TD>{}
     });
 
@@ -1212,9 +1215,9 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     mov.push_back({
         {0xa3},
         Or<
-            Pat<moffs16, r<B16, Rax>>,
-            Pat<moffs32, r<B32, Rax>>,
-            Pat<moffs64, r<B64, Rax>>
+            Pat<Rex_W::No, B16OpSz::Yes, moffs16, r<B16, Rax>>,
+            Pat<Rex_W::No, B16OpSz::No, moffs32, r<B32, Rax>>,
+            Pat<Rex_W::Yes, B16OpSz::No, moffs64, r<B64, Rax>>
         >{},
         Emitter<TD>{}
     });
@@ -1222,7 +1225,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0xB0 MOV r8, imm8 -- OI
     mov.push_back({
         {0xb0},
-        Pat<r8, imm8>{},
+        Pat<Rex_W::No, B16OpSz::No, r8, imm8>{},
         Emitter<OI>{}
     });
 
@@ -1232,9 +1235,9 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     mov.push_back({
         {0xb8},
         Or<
-            Pat<r16, imm16>,
-            Pat<r32, imm32>,
-            Pat<r64, imm64>
+            Pat<Rex_W::No, B16OpSz::Yes, r16, imm16>,
+            Pat<Rex_W::No, B16OpSz::No, r32, imm32>,
+            Pat<Rex_W::Yes, B16OpSz::No, r64, imm64>
         >{},
         Emitter<OI>{}
     });
@@ -1242,7 +1245,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0xC6 MOV r/m8, imm8 -- MI
     mov.push_back({
         {0xc6},
-        Pat<rm8, imm8>{},
+        Pat<Rex_W::No, B16OpSz::No, rm8, imm8>{},
         Emitter<MI>{}
     });
 
@@ -1252,9 +1255,9 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     mov.push_back({
         {0xc7},
         Or<
-            Pat<rm16, imm16>,
-            Pat<rm32, imm32>,
-            Pat<rm64, imm32>
+            Pat<Rex_W::No, B16OpSz::Yes, rm16, imm16>,
+            Pat<Rex_W::No, B16OpSz::No, rm32, imm32>,
+            Pat<Rex_W::Yes, B16OpSz::No, rm64, imm32>
         >{},
         Emitter<MI>{}
     });
@@ -1262,28 +1265,28 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
     // 0x0F 0x20 MOV r64, CR0-CR8 -- MR
     mov.push_back({
         {0x0f, 0x20},
-        Pat<r64, cr>{},
+        Pat<Rex_W::No, B16OpSz::No, r64, cr>{},
         Emitter<MR>{}
     });
 
     // 0x0F 0x22 MOV CR0-CR8, r64 -- RM
     mov.push_back({
         {0x0f, 0x22},
-        Pat<cr, r64>{},
+        Pat<Rex_W::No, B16OpSz::No, cr, r64>{},
         Emitter<RM>{}
     });
 
     // 0x0F 0x21 MOV r64, DR0-DR7 -- MR 
     mov.push_back({
         {0x0f, 0x21},
-        Pat<r64, dbg>{},
+        Pat<Rex_W::No, B16OpSz::No, r64, dbg>{},
         Emitter<MR>{}
     });
 
     // 0x0F 0x23 MOV DR0-DR7, r64 -- RM
     mov.push_back({
         {0x0f, 0x23},
-        Pat<dbg, r64>{},
+        Pat<Rex_W::No, B16OpSz::No, dbg, r64>{},
         Emitter<RM>{}
     });
 }
@@ -1302,6 +1305,7 @@ auto fiska::Assembler::encode(const Vec<X86Op>& ops) -> ByteVec {
 
 fiska::Assembler::Assembler() {
     using enum X86IK;
+
     register_instruction<Mov>();
 }
 

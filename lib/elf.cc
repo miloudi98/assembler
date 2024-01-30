@@ -3,11 +3,12 @@
 #include <cstring>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "lib/core.hh"
 #include "lib/x86_core.hh"
 
-// This function breaks the strict aliasing rule. However, it's perfectly 
+// This function breaks the strict aliasing rule, but it's perfectly 
 // safe to do it since we're only doing read operations.
 auto fiska::get_instr_encodings(const File* elf) -> utils::StringMap<ByteVec> {
     
@@ -28,6 +29,9 @@ auto fiska::get_instr_encodings(const File* elf) -> utils::StringMap<ByteVec> {
     Vec<Elf64_Sym> syms(symtab_hdr.sh_size / symtab_hdr.sh_entsize);
     std::memcpy(syms.data(), elf->data() + symtab_hdr.sh_offset, symtab_hdr.sh_size);
 
+    // Erase the 'UND' symbol.
+    std::erase_if(syms, [&](const Elf64_Sym& sym) { return *(strtab + sym.st_name) == '\0'; });
+
     std::sort(syms.begin(), syms.end(),
         [](const Elf64_Sym& me, const Elf64_Sym& other) {
             return me.st_value < other.st_value;
@@ -36,13 +40,12 @@ auto fiska::get_instr_encodings(const File* elf) -> utils::StringMap<ByteVec> {
 
     utils::StringMap<ByteVec> instr_encoding;
     for (u32 sym_idx = 0; sym_idx < syms.size(); ++sym_idx) {
-        const auto& sym = syms[sym_idx];
+        const Elf64_Sym& sym = syms[sym_idx];
 
-        auto end = sym_idx == syms.size() - 1
-            ? text.end()
-            : text.begin() + syms[sym_idx + 1].st_value;
-
-        instr_encoding[Str{strtab + sym.st_name}] = ByteVec{text.begin() + sym.st_value, end};
+        instr_encoding[Str{strtab + sym.st_name}] = ByteVec{
+            text.begin() + sym.st_value,
+            sym_idx == syms.size() - 1 ? text.end() : text.begin() + syms[sym_idx + 1].st_value
+        };
     }
 
     return instr_encoding;
@@ -97,19 +100,33 @@ auto fiska::translate_x86_op_to_gas_syntax(const X86Op& op) -> Str {
         }
         case Rsp: {
             switch (bw) {
+            case B8: return "spl";
             case B16: return "sp";
             case B32: return "esp";
             case B64: return "rsp";
             default: unreachable();
             } // switch 
         }
+        case Rah: {
+            switch (bw) {
+            case B8: return "ah";
+            default: unreachable();
+            } // switch
+        }
         case Rbp: {
             switch (bw) {
+            case B8: return "bpl";
             case B16: return "bp";
             case B32: return "ebp";
             case B64: return "rbp";
             default: unreachable();
             } // switch 
+        }
+        case Rch: {
+            switch (bw) {
+            case B8: return "ch";
+            default: unreachable();
+            } // switch
         }
         case Rip: {
             switch (bw) {
@@ -128,6 +145,12 @@ auto fiska::translate_x86_op_to_gas_syntax(const X86Op& op) -> Str {
             default: unreachable();
             } // switch 
         }
+        case Rdh: {
+            switch (bw) {
+            case B8: return "dh";
+            default: unreachable();
+            }
+        }
         case Rdi: {
             switch (bw) {
             case B8: return "dil";
@@ -136,6 +159,12 @@ auto fiska::translate_x86_op_to_gas_syntax(const X86Op& op) -> Str {
             case B64: return "rdi";
             default: unreachable();
             } // switch 
+        }
+        case Rbh: {
+            switch (bw) {
+            case B8: return "bh";
+            default: unreachable();
+            } // switch
         }
         case R8:
         case R9: 
@@ -146,17 +175,18 @@ auto fiska::translate_x86_op_to_gas_syntax(const X86Op& op) -> Str {
         case R14:
         case R15: {
             Str ret{"r"};
-            ret += std::to_string(8 + (+reg.id_) - (+R8));
+
+            ret += fmt::format("{}", 8 + (+reg.id_) - (+R8));
             
             switch (bw) {
             case B8:
-                ret += "l";
+                ret += "b";
                 break;
             case B16:
                 ret += "w";
                 break;
             case B32:
-                ret += "b";
+                ret += "d";
                 break;
             case B64:
                 break;
@@ -323,7 +353,7 @@ auto fiska::translate_x86_instr_to_gas_syntax(const X86Instruction* instr) -> St
     unreachable();
 }
 
-auto fiska::get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<ByteVec> {
+auto fiska::get_encoding_of(Ctx* ctx, const Vec<X86Instruction*>& instructions) -> utils::StringMap<ByteVec> {
     //=============================================================================
     // Generate the file.
     //=============================================================================
@@ -332,10 +362,9 @@ auto fiska::get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<Byt
     gas_file += fmt::format(".intel_syntax noprefix\n\n");
     gas_file += fmt::format(".text\n\n");
 
-    u64 instr_ctr = 0;
-
     for (u64 instr_idx = 0; instr_idx < instructions.size(); ++instr_idx) {
-        gas_file += fmt::format("i{}: {}\n",
+        gas_file += fmt::format(
+            "i{}: {}\n",
             instr_idx,
             translate_x86_instr_to_gas_syntax(instructions[instr_idx])
         );
@@ -344,7 +373,7 @@ auto fiska::get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<Byt
     //=============================================================================
     // Write the file to a temporary location and assemble it.
     //=============================================================================
-    fs::path tmp_path = random_tmp_path(".fiska.as");
+    fs::path tmp_path = utils::random_tmp_path(".fiska.as");
     fs::path out_path = fs::path(fmt::format("{}.o", tmp_path.string()));
 
     auto success = utils::write_file(gas_file.data(), gas_file.size(), tmp_path);
@@ -355,9 +384,15 @@ auto fiska::get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<Byt
 
     // Child process
     if (pid == 0) {
-        char *argv[] = { "/usr/bin/as", tmp_path.string().c_str(), "-o", out_path.string().c_str(), (char*) 0 }; 
-        execv("as", argv);	
-        perror("execve");
+        execl(
+            "/usr/bin/as",
+            "/usr/bin/as",
+            tmp_path.string().c_str(),
+            "-o",
+            out_path.string().c_str(),
+            NULL
+        );
+
         unreachable("Failed to assemble file '{}'.", tmp_path.string()); 
 
     // Parent process
@@ -373,6 +408,239 @@ auto fiska::get_encoding_of(const Vec<X86Instruction*>& instructions) -> Vec<Byt
     // the instructions.
     //=============================================================================
     const File* elf = ctx->get_file(ctx->load_file(out_path)); 
+    defer {
+        ctx->files_.pop_back();
+        fs::remove_all(tmp_path);
+        fs::remove_all(out_path);
+    };
 
     return get_instr_encodings(elf);
 }
+
+namespace fiska {
+using r8 = r<BW::B8>;
+using r16 = r<BW::B16>;
+using r32 = r<BW::B32>;
+using r64 = r<BW::B64>;
+using sreg = r<BW::B16, RK::Seg>;
+
+using m8 = m<BW::B8>;
+using m16 = m<BW::B16>;
+using m32 = m<BW::B32>;
+using m64 = m<BW::B64>;
+
+template <BW w>
+using rm = Any<r<w>, m<w>>;
+
+using rm8 = rm<BW::B8>;
+using rm16 = rm<BW::B16>;
+using rm32 = rm<BW::B32>;
+using rm64 = rm<BW::B64>;
+
+using moffs8 = mo<BW::B8>;
+using moffs16 = mo<BW::B16>;
+using moffs32 = mo<BW::B32>;
+using moffs64 = mo<BW::B64>;
+
+using imm8 = i<BW::B8>;
+using imm16 = i<BW::B16>;
+using imm32 = i<BW::B32>;
+using imm64 = i<BW::B64>;
+}
+
+void fiska::run_global_tests() {
+    // 0x88 MOV r/m8, r8 -- MR
+    Vec<X86Op> rm8_inst = rm8::instances();
+    Vec<X86Op> r8_inst = r8::instances();
+
+    //================================================
+    // Test setup.
+    //================================================
+    auto test_ctx = std::make_unique<Ctx>();
+
+    auto test_mod = std::make_unique<Module>();
+    test_mod->name_ = "test_mod";
+    test_mod->ctx_ = test_ctx.get();
+
+    auto main_test_proc = new (test_mod.get(), true) ProcExpr();
+    main_test_proc->func_name_ = "main_test_proc";
+
+    Assembler as{};
+
+    for (const auto& lhs : rm8_inst) {
+        for (const auto& rhs : r8_inst) {
+            if (not as.is_valid_instr<X86IK::Mov>({lhs, rhs})) { continue; }
+            std::ignore = new (main_test_proc) Mov(lhs, rhs, as.encode<X86IK::Mov>({lhs, rhs}));
+        }
+    }
+
+    utils::StringMap<ByteVec> encodings = get_encoding_of(test_ctx.get(), main_test_proc->instructions_);
+
+    for (auto [idx, instr] : main_test_proc->instructions_ | vws::enumerate) {
+        Str key = fmt::format("i{}", idx);
+        ByteVec as_encoding = utils::strmap_get(encodings, key);
+
+
+        fmt::print("Instr = {}; as encoding = ", translate_x86_instr_to_gas_syntax(instr));
+
+
+        fmt::print("[");
+        for (auto [idx, byte] : as_encoding | vws::enumerate) {
+            fmt::print("{:#04x}", byte);
+            fmt::print("{}", u32(idx) == as_encoding.size() - 1 ? "" : ", ");
+        }
+        fmt::print("]");
+
+        fmt::print("; fiska encoding = ");
+        fmt::print("[");
+        for (auto [idx, byte] : instr->encoding_ | vws::enumerate) {
+            fmt::print("{:#04x}", byte);
+            fmt::print("{}", u32(idx) == instr->encoding_.size() - 1 ? "" : ", ");
+        }
+        fmt::print("]\n");
+        assert(as_encoding == instr->encoding_, "Instruction #{} assembles wrong.", idx);
+    }
+}
+
+//void fiska::run_global_tests() {
+//    using enum RI;
+//    using enum BW;
+//    using enum Mem::Scale;
+//
+//    Vec<i64> mem_disps = {0, 0x11223344, 0x11, 0x1122, 0x11223, -0x11223344, -0x11, -0x112};
+//    Vec<i64> moffs_values = {0x1122334455, 0x11223344, 0x1122, 0x11};
+//    Vec<i64> imms_values = {0x11223344, 0x1122334455667788, 0x1122, 0x112, 0x11, 0, -1, -2, -10};
+//
+//    Vec<Reg> regs;
+//    Vec<Mem> mems;
+//    Vec<Moffs> moffs;
+//    Vec<Imm> imms;
+//    Vec<X86Op> all_x86_operands;
+//
+//    //================================================
+//    // Gather all possible registers.
+//    //================================================
+//    for (BW w : {B8, B16, B32, B64}) {
+//        // GP registers.
+//        for (u32 ri = +Rax; ri <= +R15; ++ri) {
+//            Reg reg{w, RI(ri)};
+//            if (reg.is_valid()) { regs.push_back(reg); }
+//        }
+//
+//        Reg reg{w, RI::Rip};
+//        if (reg.is_valid()) { regs.push_back(reg); }
+//
+//        // Segment registers.
+//        for (u32 ri = +Es; ri <= +Gs; ++ri) {
+//            Reg reg{w, RI(ri)};
+//            if (reg.is_valid()) { regs.push_back(reg); }
+//        }
+//
+//        // Control and debug registers.
+//        for (u32 ri = +Cr0; ri <= +Dbg15; ++ri) {
+//            Reg reg{w, RI(ri)};
+//            if (reg.is_valid()) { regs.push_back(reg); }
+//        }
+//    }
+//
+//    fmt::print("regs.size() = {}\n", regs.size());
+//
+//    //================================================
+//    // Gather all possible memory references.
+//    //================================================
+//    // MK::BaseDisp
+//    for (BW w : {B8, B16, B32, B64}) {
+//        for (Reg r : regs) {
+//            Mem mem{w, r, std::nullopt, std::nullopt, std::nullopt};
+//            if (mem.is_valid()) { mems.push_back(mem); }
+//        }
+//    }
+//    // MK::BaseIndexDisp
+//    for (BW w : {B8, B16, B32, B64}) {
+//        for (Reg base : regs) {
+//            for (Mem::Scale s : {One, Two, Four, Eight}) {
+//                for (Reg index : regs) {
+//                    Mem mem{w, base, index, s, std::nullopt};
+//                    if (mem.is_valid()) { mems.push_back(mem); }
+//                }
+//            }
+//        }
+//    }
+//    // MK::IndexDisp
+//    for (BW w : {B8, B16, B32, B64}) {
+//        for (Mem::Scale s : {One, Two, Four, Eight}) {
+//            for (Reg index : regs) {
+//                for (i64 disp : mem_disps) {
+//                    Mem mem{w, std::nullopt, index, s, disp ? Opt<i64>{disp} : std::nullopt};
+//                    if (mem.is_valid()) { mems.push_back(mem); }
+//                }
+//            }
+//        }
+//    }
+//    // MK::DispOnly
+//    for (BW w : {B8, B16, B32, B64}) {
+//        for (i64 disp : mem_disps) {
+//            if (not disp) { continue; }
+//
+//            Mem mem{w, std::nullopt, std::nullopt, std::nullopt, disp ? Opt<i64>{disp} : std::nullopt};
+//            if (mem.is_valid()) { mems.push_back(mem); }
+//        }
+//    }
+//
+//    //================================================
+//    // Gather Random offset values.
+//    //================================================
+//    for (BW w : {B8, B16, B32, B64}) {
+//        for (i64 mo : moffs_values) {
+//            moffs.push_back(Moffs{w, mo});
+//        }
+//    }
+//
+//    //================================================
+//    // Gather Random immediate values.
+//    //================================================
+//    for (BW w : {B8, B16, B32, B64}) {
+//        for (i64 imm : imms_values) {
+//            imms.push_back(Imm{w, imm});
+//        }
+//    }
+//
+//    //================================================
+//    // Populate the container of all x86 operands.
+//    //================================================
+//    for (Reg r : regs) { all_x86_operands.push_back({r}); } 
+//    for (Mem m : mems) { all_x86_operands.push_back({m}); }
+//    for (Moffs mo : moffs) { all_x86_operands.push_back({mo}); }
+//    for (Imm imm : imms) { all_x86_operands.push_back({imm}); }
+//
+//    
+//    
+//    
+//    
+//
+//    
+//    
+//    
+//
+//    
+//    
+//
+//    
+//
+//    u64 ctr = 0;
+//    for (Reg dst : regs) {
+//        if (ctr >= 10) { break; }
+//        for (Reg src : regs) {
+//            if (not as.is_valid_instr<X86IK::Mov>({{dst}, {src}})) {
+//                continue;
+//            }
+//
+//            ctr++;
+//            if (ctr >= 10) { break; }
+//
+//            std::ignore = new (main_test_proc) Mov({dst}, {src}, as.encode<X86IK::Mov>({{dst}, {src}}));
+//        }
+//    }
+//
+//    ModulePrinter::print_module(test_mod.get());
+//}

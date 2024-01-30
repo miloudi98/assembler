@@ -138,17 +138,17 @@ auto utils::random_tmp_path(StrRef extension) -> fs::path {
     return tmp_dir / file_name;
 }
 
-auto fiska::write_file(const void* data, usz size, const fs::path& path) -> bool {
+auto utils::write_file(const void* data, usz size, const fs::path& path) -> bool {
     auto f = std::fopen(path.string().c_str(), "wb");
     assert(f, "Failed to open the file at path: '{}' for writing", path.string());
-    defer { std::fclose(f); }
+    defer { std::fclose(f); };
 
     for (;;) {
         usz written = std::fwrite(data, 1, size, f); 
         if (written == size) { break; }
         if (written < 1) { return false; }
 
-        data = static_cast<char*>(data) + written;
+        data = static_cast<const char*>(data) + written;
         size -= written;
     }
     return true;
