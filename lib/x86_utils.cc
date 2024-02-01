@@ -25,13 +25,19 @@ auto build_bw_of_ri_map() -> Vec<Vec<fiska::x86::BW>> {
     bws_of_ri[+R13] = {B8, B16, B32, B64};
     bws_of_ri[+R14] = {B8, B16, B32, B64};
     bws_of_ri[+R15] = {B8, B16, B32, B64};
-
-    bws_of_ri[+Rip] = {B16, B32, B64};
-
     bws_of_ri[+Rah] = {B8};
     bws_of_ri[+Rch] = {B8};
     bws_of_ri[+Rdh] = {B8};
     bws_of_ri[+Rbh] = {B8};
+
+    bws_of_ri[+Rip] = {B16, B32, B64};
+
+    bws_of_ri[+Es] = {B16};
+    bws_of_ri[+Cs] = {B16};
+    bws_of_ri[+Ss] = {B16};
+    bws_of_ri[+Ds] = {B16};
+    bws_of_ri[+Fs] = {B16};
+    bws_of_ri[+Gs] = {B16};
 
     bws_of_ri[+Cr0] = {B64};
     bws_of_ri[+Cr1] = {B64};
@@ -151,6 +157,82 @@ auto fiska::x86::Reg::index() const -> u8 {
     case Dbg13: return 5;
     case Dbg14: return 6;
     case Dbg15: return 7;
+    } // switch
+    unreachable();
+}
+
+auto fiska::x86::rk_of_ri(RI id) -> RK {
+    using enum RI;
+
+    switch (id) {
+    case Rax:
+    case Rcx:
+    case Rdx:
+    case Rbx:
+    case Rsp:
+    case Rbp:
+    case Rsi:
+    case Rdi:
+    case R8:
+    case R9:
+    case R10:
+    case R11:
+    case R12:
+    case R13:
+    case R14:
+    case R15:
+    case Rah:
+    case Rch:
+    case Rdh:
+    case Rbh:
+        return RK::Gp;
+
+    case Rip:
+        return RK::Ip;
+
+    case Es:
+    case Cs:
+    case Ss:
+    case Ds:
+    case Fs:
+    case Gs:
+        return RK::Seg;
+
+    case Cr0:
+    case Cr1:
+    case Cr2:
+    case Cr3:
+    case Cr4:
+    case Cr5:
+    case Cr6:
+    case Cr7:
+    case Cr8:
+    case Cr9:
+    case Cr10:
+    case Cr11:
+    case Cr12:
+    case Cr13:
+    case Cr14:
+    case Cr15:
+        return RK::Ctrl;
+
+    case Dbg0:
+    case Dbg1:
+    case Dbg2:
+    case Dbg3:
+    case Dbg4:
+    case Dbg5:
+    case Dbg6:
+    case Dbg7:
+    case Dbg8:
+    case Dbg9:
+    case Dbg10:
+    case Dbg11:
+    case Dbg12:
+    case Dbg13:
+    case Dbg14:
+    case Dbg15:
+        return RK::Dbg;
     } // switch
     unreachable();
 }

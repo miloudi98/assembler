@@ -301,7 +301,7 @@ auto fiska::x86::elf::assemble_instructions_with_gas(X86Instruction::ListRef ins
 
     write_instructions_with_gas_syntax(tmp_path, instructions);
     defer {
-        fs::remove_all(tmp_path);
+        //fs::remove_all(tmp_path);
         fs::remove_all(out_path);
     };
 
@@ -356,14 +356,15 @@ auto fiska::x86::elf::str_of_operand_with_gas_syntax(X86Op::Ref op) -> Str {
         }
 
         if (mem.index_reg_) {
-            ret += fmt::format(" {}*{}",
+            ret += fmt::format("{} {}*{}",
+                mem.base_reg_ ? " +" : "",
                 1 << +mem.scale_.value(),
                 str_of_reg_with_gas_syntax(mem.index_reg_.value())
             );
         }
 
         if (mem.disp_bw_ != B0) {
-            ret += mem.disp_ >= 0 ? "+" : "-";
+            ret += mem.disp_ >= 0 ? "+" : "";
             ret += fmt::format("{:#04x}", mem.disp_);
         }
 
@@ -377,7 +378,7 @@ auto fiska::x86::elf::str_of_operand_with_gas_syntax(X86Op::Ref op) -> Str {
     // Translate |Moffs|.
     if (op.is<Moffs>()) {
         const Moffs& moffs = op.as<Moffs>();
-        return fmt::format("{} [{:#04}]\n",
+        return fmt::format("{} [{:#04}]",
             str_of_bw_with_gas_syntax(moffs.bw_),
             moffs.addr_
         );

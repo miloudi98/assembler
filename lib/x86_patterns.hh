@@ -87,16 +87,14 @@ struct r<kind> : X86OpClass {
             and op.as<Reg>().kind() == kind;
     }
 
-    static constexpr auto instances() -> X86Op::List {
+    static auto instances() -> X86Op::List {
         X86Op::List ret;
         
-        for (u32 ri = 0; ri < AsCtx::knum_regs; ++ri) {
-            RI rid = RI(ri);
+        for (u32 rid = 0; rid < AsCtx::knum_regs; ++rid) {
+            if (rk_of_ri(RI(rid)) != kind) { continue; }
 
-            if (rk_of_ri(rid) != kind) { continue; }
-
-            for (BW w : AsCtx::kbw_of_ri[+rid]) {
-                ret.push_back(X86Op{Reg{w, rid}});
+            for (BW w : AsCtx::kbw_of_ri[rid]) {
+                ret.push_back(X86Op{Reg{w, RI(rid)}});
             }
         }
 
@@ -185,9 +183,11 @@ struct m<bit_width> : X86OpClass {
 
         // Generate |MK::IndexDisp| memory references.
         for (X86Op::Ref ireg : index_regs) {
-            ret.push_back(X86Op{
-                Mem::make(bit_width, std::nullopt, ireg.as<Reg>(), std::nullopt, random_disp())
-            });
+            for (MemIndexScale s : {One, Two, Four, Eight}) {
+                ret.push_back(X86Op{
+                    Mem::make(bit_width, std::nullopt, ireg.as<Reg>(), s, random_disp())
+                });
+            }
         }
 
         // Generate |MK::DispOnly| memory references.
@@ -217,7 +217,7 @@ template <IsX86OpClass auto breg_class, IsX86OpClass auto ireg_class>
 struct m<breg_class, ireg_class> : X86OpClass {
     static constexpr auto match(X86Op::Ref op) -> i1 {
         constexpr i1 breg_is_any = IsAnyX86OpClass<decltype(breg_class)>; 
-        constexpr i1 ireg_is_any = IsAnyX86OpClass<decltype(breg_class)>;
+        constexpr i1 ireg_is_any = IsAnyX86OpClass<decltype(ireg_class)>;
 
         i1 breg_match = breg_is_any or (op.is<Mem>() and op.as<Mem>().base_reg_ and breg_class.match(X86Op{*op.as<Mem>().base_reg_}));
         i1 ireg_match = ireg_is_any or (op.is<Mem>() and op.as<Mem>().index_reg_ and ireg_class.match(X86Op{*op.as<Mem>().index_reg_}));
@@ -398,10 +398,10 @@ using cr = r<RK::Ctrl>;
 using dbg = r<RK::Dbg>;
 // ne_byte_rgs_with_rex — Byte registers that are not encodable when a REX prefix is present.
 using ne_byte_regs_with_rex = Alt<
-    r<BW::B8, RI::Rsp>,
-    r<BW::B8, RI::Rbp>,
-    r<BW::B8, RI::Rsi>,
-    r<BW::B8, RI::Rdi>
+    r<RI::Rah>,
+    r<RI::Rch>,
+    r<RI::Rdh>,
+    r<RI::Rbh>
 >;
 // byte_regs_requiring_rex — Byte Registers that require a rex prefix to be encoded.
 using byte_regs_requiring_rex = Alt<

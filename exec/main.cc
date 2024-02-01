@@ -8,66 +8,63 @@
 #include "lib/x86_utils.hh"
 #include "lib/x86_assembler.hh"
 #include "lib/instructions/mov.hh"
+#include "lib/testing/elf.hh"
+
+#include <cstring>
 
 using namespace fiska::x86;
 
-//constexpr std::string_view file_name = "/home/jawad/fiska/dev/x86_assembler/tests/mov.fiska";
-
-//auto main(i32 argc, char* argv[]) -> i32 {
-//    auto ctx = std::make_unique<Ctx>();
-//    auto mod = std::make_unique<Module>();
-//    mod->name_ = "main_mod";
-//    mod->ctx_ = ctx.get();
-//
-//    u16 fid = ctx->load_file(fs::path(file_name));
-//
-//    Lexer::lex_file_into_module(ctx->get_file(fid), mod.get());
-//
-//    //for (auto t : mod->tokens_.storage_) {
-//    //    fmt::print("<{}>\n", Tok::spelling(t.kind_));
-//    //}
-//
-//    Parser::parse_file_into_module(ctx->get_file(fid), mod.get());
-//
-//    for (Expr* expr : mod->top_level_exprs_) {
-//        auto proc_expr = static_cast<ProcExpr*>(expr);
-//        for (X86Instruction* instr : proc_expr->instructions_) {
-//            fmt::print("{}\n", translate_x86_instr_to_gas_syntax(instr));
-//        }
-//    }
-//
-//    auto proc_expr = static_cast<ProcExpr*>(mod->top_level_exprs_[0]);
-//
-//    auto m = get_encoding_of(ctx.get(), proc_expr->instructions_);
-//
-//    for (const auto& [k, v] : m) {
-//        fmt::print("name = {}, ", k);
-//
-//        fmt::print("[");
-//        for (u8 byte : v) {
-//            fmt::print("{:#04x}, ", byte);
-//        }
-//        fmt::print("]\n");
-//    }
-//
-//
-//    ModulePrinter::print_module(mod.get());
-//
-//    return 0;
-//}
-
 auto main(i32 argc, char* argv[]) -> i32 {
     AsCtx::init();
-    fmt::print("rax = {}, es = {}\n", +RI::Rax, +RI::Es);
-    fmt::print("rah = {}, rbh = {}\n", +RI::Rah, +RI::Rbh);
-    fmt::print("AssemblerCtx::kbw_of_ri.size() = {}\n", AsCtx::kbw_of_ri.size());
+    using enum BW;
 
-    auto insts = instructions::mov::instances();
+    Vec<X86Op::List> insts = instructions::mov::instances();
+
+    X86Instruction::List x86_instructions;
+    x86_instructions.reserve(insts.size());
 
     for (X86Op::ListRef op_list : insts) {
-        std::ignore = instructions::mov::emit(op_list);
+        x86_instructions.push_back(X86Instruction{X86IK::Mov, op_list});
     }
 
-    fmt::print("mov::instances().size() = {}\n", instructions::mov::instances().size());
+    auto encodings = elf::assemble_instructions_with_gas(x86_instructions);
+
+    for (u64 instr_idx{}; const auto& encoding : encodings) {
+        bool wrong_assembly = false;
+
+        InstructionBuf fiska_encoding = instructions::mov::emit(x86_instructions[instr_idx++].op_list);
+
+        wrong_assembly |= fiska_encoding.sz_ != encoding.size();
+
+        if (fiska_encoding.sz_ == encoding.size()) {
+            wrong_assembly |= std::memcmp(fiska_encoding.buf_, encoding.data(), encoding.size()) != 0;
+        }
+
+        
+
+        if (wrong_assembly) {
+
+            fmt::print("Wrong assembly generated for instr_idx = {}\n", instr_idx);
+
+            fmt::print("[");
+            for (auto [idx, byte] : encoding | vws::enumerate) {
+                fmt::print("{:#04x}", byte);
+                fmt::print("{}", u32(idx) == encoding.size() - 1 ? "" : ", ");
+            }
+            fmt::print("]");
+
+            fmt::print("; fiska encoding = ");
+            fmt::print("[");
+            for (u8 idx = 0; idx < fiska_encoding.sz_; ++idx) {
+                fmt::print("{:#04x}", fiska_encoding.buf_[idx]);
+                fmt::print("{}", u32(idx) == fiska_encoding.sz_ - 1 ? "" : ", ");
+            }
+            fmt::print("]\n");
+            std::exit(1);
+
+        }
+
+    }
+
     return 0;
 }

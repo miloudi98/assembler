@@ -47,8 +47,7 @@ struct Pat : X86PatternClass {
     static constexpr auto has_b16_opsz_override(X86Op::ListRef op_list) -> i1 { return +with_b16_opsz_override; }
 
     static constexpr auto match(X86Op::ListRef op_list) -> i1 {
-        constexpr u32 pat_sz = sizeof...(OpClass);
-        if (pat_sz != op_list.size()) { return false; }
+        if (sizeof...(OpClass) != op_list.size()) { return false; }
 
         u32 op_idx = 0;
         return (OpClass::match(op_list[op_idx++]) and ...);
@@ -58,7 +57,7 @@ struct Pat : X86PatternClass {
         Vec<X86Op::List> ret;
 
         auto is_illegal_pat = [&](X86Op::ListRef op_list) {
-            return rgs::any_of(op_list, patterns::byte_regs_requiring_rex::match)
+            return rgs::any_of(op_list, patterns::rm_requiring_rex::match)
                 and rgs::any_of(op_list, patterns::ne_byte_regs_with_rex::match);
         };
 
@@ -123,6 +122,12 @@ struct Emitter<OpEn::MR> {
             .reg = r.modrm_encoding(),
             .mod = rm.is<Mem>() ? rm.as<Mem>().mod_ : Mem::kmod_reg
         };
+
+        if (op_list[0].is<Mem>()) {
+            fmt::print("disp = {}\n", op_list[0].as<Mem>().disp_);
+            fmt::print("disp_bw_ = {}\n", +op_list[0].as<Mem>().disp_bw_);
+            fmt::print("modrm.mod = {}\n", op_list[0].as<Mem>().mod_);
+        }
 
         Rex rex {
             .b = rm.is<Reg>() and rm.as<Reg>().requires_ext(),
@@ -307,19 +312,18 @@ GCC_DIAG_IGNORE_POP();
 // Opcode type.
 //====================================================================
 template <u8... byte>
+requires (sizeof...(byte) <= 3)
 struct OpCode {
     static constexpr auto value() -> u64 {
-        constexpr u8 opcode_sz = sizeof...(byte);
+        constexpr std::array bytes = {byte...};
 
-        u64 ret = 0;
-        u8 idx = 0;
-
-        auto build_opcode = [&](u8 b) {
-            ret |= b << (8 * idx++);
-        };
-
-        (build_opcode(byte), ...);
-        return ret;
+        switch (sizeof...(byte)) {
+        case 1: return bytes[0];
+        case 2: return bytes[0] | bytes[1] << 8;
+        case 3: return bytes[0] | bytes[1] << 8 | bytes[2] << 16;
+        default: unreachable();
+        }
+        unreachable();
     }
 };
 

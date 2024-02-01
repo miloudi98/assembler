@@ -24,23 +24,12 @@ enum struct BW : u16 {
 
 // Register Id.
 enum struct RI : u16 {
-    Rax, Es, Cr0,  Dbg0, 
-    Rcx, Cs, Cr1,  Dbg1, 
-    Rdx, Ss, Cr2,  Dbg2, 
-    Rbx, Ds, Cr3,  Dbg3, 
-    Rsp, Fs, Cr4,  Dbg4, 
-    Rbp, Gs, Cr5,  Dbg5, 
-    Rsi,     Cr6,  Dbg6, 
-    Rdi,     Cr7,  Dbg7, 
-    R8,      Cr8,  Dbg8,  
-    R9,      Cr9,  Dbg9,
-    R10,     Cr10, Dbg10,
-    R11,     Cr11, Dbg11,
-    R12,     Cr12, Dbg12,
-    R13,     Cr13, Dbg13,
-    R14,     Cr14, Dbg14,
-    R15,     Cr15, Dbg15,
-    Rip,
+    Rax,  Rcx,  Rdx,  
+    Rbx,  Rsp,  Rbp,  
+    Rsi,  Rdi,  R8,    
+    R9,   R10,  R11,  
+    R12,  R13,  R14,  
+    R15,
     // 8-bit Rsp
     Rah,
     // 8-bit Rbp
@@ -49,6 +38,25 @@ enum struct RI : u16 {
     Rdh,
     // 8-bit Rdi
     Rbh,
+
+    Rip,
+
+    Es, Cs, Ss,
+    Ds, Fs, Gs,
+
+    Cr0, Cr1, Cr2,
+    Cr3, Cr4, Cr5,
+    Cr6, Cr7, Cr8,
+    Cr9, Cr10, Cr11,
+    Cr12, Cr13, Cr14,
+    Cr15,
+
+    Dbg0, Dbg1, Dbg2,
+    Dbg3, Dbg4, Dbg5,
+    Dbg6, Dbg7, Dbg8,
+    Dbg9, Dbg10, Dbg11,
+    Dbg12, Dbg13, Dbg14,
+    Dbg15
 };
 
 // Register kind.
@@ -76,7 +84,7 @@ enum struct MemIndexScale : u8 {
     One = 0,
     Two = 1,
     Four = 2,
-    Eight = 8
+    Eight = 3
 };
 
 // Instruction operand encoding.
@@ -166,10 +174,10 @@ struct Mem {
     static constexpr u8 ksib_no_base_reg = 0b101;
 
 public:
-
-    //// Make sure all instances are created using the static function |make|.
-    //Mem() = delete;
-
+    // Supress warnings from bit-fields narrowings. We are not aware of 
+    // any way to supress them other than removing the -Wconversion flag
+    // from the code in question.
+    GCC_DIAG_IGNORE_PUSH(-Wconversion)
     // Factory function. All 'Mem's are creating through it.
     // We need this mechanism to make sure all members are correctly initialized.
     template <typename... Args>
@@ -245,6 +253,7 @@ public:
 
         return mem;
     }
+    GCC_DIAG_IGNORE_POP();
 };
 
 struct X86Op {
@@ -285,7 +294,7 @@ struct X86Instruction {
 // Assembler context.
 struct AsCtx {
     // Must be kept in sync.
-    static constexpr u8 knum_regs = +RI::Rbh + 1;
+    static constexpr u8 knum_regs = +RI::Dbg15 + 1;
     static inline Vec<Vec<BW>> kbw_of_ri;
     static inline std::mt19937 kgen{std::random_device{}()};
     static inline std::uniform_int_distribution<i8>  k8bit_rand_int{std::numeric_limits<i8>::min(), std::numeric_limits<i8>::max()}; 

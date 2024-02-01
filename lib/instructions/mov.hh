@@ -64,7 +64,10 @@ using mov = InstrExprList<
         Or<
             Pat<Rex_W::No, B16OpSz::No, sreg, m16>,
             Pat<Rex_W::No, B16OpSz::Yes, sreg, r16>,
-            Pat<Rex_W::Yes, B16OpSz::No, sreg, rm64>
+            // Remove 'MOV sreg, m64' because gas doens't support it even though
+            // it's in the intel manual. It's useless anyways. 
+            // The correct pattern is: 'Pat<Rex_W::Yes, B16OpSz::No, sreg, rm64>'
+            Pat<Rex_W::Yes, B16OpSz::No, sreg, r64>
         >,
         Emitter<OpEn::RM>
     >,
