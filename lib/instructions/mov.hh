@@ -31,7 +31,7 @@ using mov = InstrExprList<
     InstrExpr<
         OpCode<0x8a>,
         Pat<Rex_W::No, B16OpSz::No, r8, rm8>,
-        Emitter<OpEn::MR>
+        Emitter<OpEn::RM>
     >,
     // 0x8B MOV r16, r/m16 -- RM
     // 0x8B MOV r32, r/m32 -- RM

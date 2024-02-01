@@ -62,8 +62,12 @@ auto main(i32 argc, char* argv[]) -> i32 {
     fmt::print("rah = {}, rbh = {}\n", +RI::Rah, +RI::Rbh);
     fmt::print("AssemblerCtx::kbw_of_ri.size() = {}\n", AsCtx::kbw_of_ri.size());
 
+    auto insts = instructions::mov::instances();
+
+    for (X86Op::ListRef op_list : insts) {
+        std::ignore = instructions::mov::emit(op_list);
+    }
+
     fmt::print("mov::instances().size() = {}\n", instructions::mov::instances().size());
-    //using enum BW;
-    //run_global_tests();
     return 0;
 }

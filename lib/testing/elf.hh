@@ -55,9 +55,10 @@ struct Elf64_Sym {
 };
 
 auto read_symbols_from_elf(StrRef elf) -> Vec<ByteVec>;
-auto encode_instructions_with_gas(X86Instruction::ListRef instructions) -> Vec<ByteVec>;
-auto write_instruction_with_gas_syntax(X86Instruction::Ref instruction) -> Str;
-auto write_operand_with_gas_syntax(X86Op::Ref op) -> Str;
+auto assemble_instructions_with_gas(X86Instruction::ListRef instructions) -> Vec<ByteVec>;
+auto write_instructions_with_gas_syntax(const fs::path& dst_path, X86Instruction::ListRef instructions) -> void;
+auto str_of_instruction_with_gas_syntax(X86Instruction::Ref instruction) -> Str;
+auto str_of_operand_with_gas_syntax(X86Op::Ref op) -> Str;
 
 } // namespace fiska::x86::elf
 

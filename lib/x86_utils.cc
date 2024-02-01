@@ -76,6 +76,14 @@ auto fiska::x86::Reg::kind() const -> RK {
     return rk_of_ri(id_);
 }
 
+auto fiska::x86::Reg::requires_ext() const -> i1 {
+    using enum RI;
+
+    return (+id_ >= +R8 and +id_ <= +R15)
+        or (+id_ >= +Cr8 and +id_ <= +Cr15)
+        or (+id_ >= +Dbg8 and +id_ <= +Dbg15);
+}
+
 auto fiska::x86::Reg::index() const -> u8 {
     using enum RI;
 

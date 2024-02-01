@@ -9,6 +9,19 @@
 
 namespace {
 
+auto str_of_bw_with_gas_syntax(fiska::x86::BW w) -> StrRef {
+    using enum fiska::x86::BW;
+
+    switch (w) {
+    case B8: return "BYTE PTR";
+    case B16: return "WORD PTR";
+    case B32: return "DWORD PTR";
+    case B64: return "QWORD PTR";
+    default: unreachable();
+    } // switch
+    unreachable();
+}
+
 auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
     using enum fiska::x86::RI;
     using enum fiska::x86::BW;
@@ -240,19 +253,19 @@ auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<ByteVec> {
     return as_instruction_encoding;
 }
 
-auto fiska::x86::elf::write_instruction_with_gas_syntax(X86Instruction::Ref instruction) -> Str {
+auto fiska::x86::elf::str_of_instruction_with_gas_syntax(X86Instruction::Ref instruction) -> Str {
     switch (instruction.kind_) {
     case X86IK::Mov: {
         return fmt::format("mov {}, {}",
-            write_operand_with_gas_syntax(instruction.op_list[0]),
-            write_operand_with_gas_syntax(instruction.op_list[1])
+            str_of_operand_with_gas_syntax(instruction.op_list[0]),
+            str_of_operand_with_gas_syntax(instruction.op_list[1])
         );
     }
     } // switch
     unreachable();
 }
 
-auto fiska::x86::elf::encode_instructions_with_gas(X86Instruction::ListRef instructions) -> Vec<ByteVec> {
+auto fiska::x86::elf::write_instructions_with_gas_syntax(const fs::path& out_path, X86Instruction::ListRef instructions) -> void {
     //=============================================================================
     // Generate the file.
     //=============================================================================
@@ -266,19 +279,27 @@ auto fiska::x86::elf::encode_instructions_with_gas(X86Instruction::ListRef instr
         gas_file += fmt::format(
             "i{}: {}\n",
             instr_idx,
-            write_instruction_with_gas_syntax(instr)
+            str_of_instruction_with_gas_syntax(instr)
         );
         instr_idx++;
     }
 
     //=============================================================================
-    // Write the file to a temporary location and assemble it.
+    // Write the file.
+    //=============================================================================
+    auto success = utils::write_file(gas_file.data(), gas_file.size(), out_path);
+    assert(success, "Failed to write the file '{}'.", out_path.string());
+}
+
+
+auto fiska::x86::elf::assemble_instructions_with_gas(X86Instruction::ListRef instructions) -> Vec<ByteVec> {
+    //=============================================================================
+    // Write the instructions to a temporary location and assemble it.
     //=============================================================================
     fs::path tmp_path = utils::random_tmp_path(".fiska.as");
     fs::path out_path = fs::path(fmt::format("{}.o", tmp_path.string()));
 
-    auto success = utils::write_file(gas_file.data(), gas_file.size(), tmp_path);
-    assert(success, "Failed to write the file '{}'.", tmp_path.string());
+    write_instructions_with_gas_syntax(tmp_path, instructions);
     defer {
         fs::remove_all(tmp_path);
         fs::remove_all(out_path);
@@ -313,10 +334,10 @@ auto fiska::x86::elf::encode_instructions_with_gas(X86Instruction::ListRef instr
     // the symbols.
     //=============================================================================
     Vec<char> elf_file = utils::load_file(out_path);
-    return read_symbols_from_elf(StrRef{elf_file.data(), elf_file.size()});
+    return read_symbols_from_elf({elf_file.data(), elf_file.size()});
 }
 
-auto fiska::x86::elf::write_operand_with_gas_syntax(X86Op::Ref op) -> Str {
+auto fiska::x86::elf::str_of_operand_with_gas_syntax(X86Op::Ref op) -> Str {
     using enum BW;
 
     // Translate |Reg|.
@@ -329,23 +350,7 @@ auto fiska::x86::elf::write_operand_with_gas_syntax(X86Op::Ref op) -> Str {
 
         const Mem& mem = op.as<Mem>();
 
-        switch (mem.bw_) {
-        case B8:
-            ret += "BYTE PTR ";
-            break;
-        case B16:
-            ret += "WORD PTR ";
-            break;
-        case B32:
-            ret += "DWORD PTR ";
-            break;
-        case B64:
-            ret += "QWORD PTR ";
-            break;
-        default: unreachable();
-        } // switch
-
-        ret += "[";
+        ret += fmt::format("{} [", str_of_bw_with_gas_syntax(mem.bw_));
         if (mem.base_reg_) {
             ret += str_of_reg_with_gas_syntax(mem.base_reg_.value());
         }
@@ -371,30 +376,11 @@ auto fiska::x86::elf::write_operand_with_gas_syntax(X86Op::Ref op) -> Str {
 
     // Translate |Moffs|.
     if (op.is<Moffs>()) {
-        Str ret;
-        ret.reserve(64);
-
         const Moffs& moffs = op.as<Moffs>();
-
-        switch (moffs.bw_) {
-        case B8:
-            ret += "BYTE PTR ";
-            break;
-        case B16:
-            ret += "WORD PTR ";
-            break;
-        case B32:
-            ret += "DWORD PTR ";
-            break;
-        case B64:
-            ret += "QWORD PTR ";
-            break;
-        default: unreachable();
-        } // switch
-
-        ret += fmt::format("[{:#04}]\n", moffs.addr_);
-
-        return ret;
+        return fmt::format("{} [{:#04}]\n",
+            str_of_bw_with_gas_syntax(moffs.bw_),
+            moffs.addr_
+        );
     }
 
     unreachable();

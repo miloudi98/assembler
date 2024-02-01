@@ -75,11 +75,11 @@ struct Pat : X86PatternClass {
 template <IsX86PatternClass... Pattern>
 struct Or : X86PatternClass {
     static constexpr auto has_rex_w(X86Op::ListRef op_list) -> i1 {
-        return ((Pattern::match(op_list) and Pattern::has_rex()) or ...);
+        return ((Pattern::match(op_list) and Pattern::has_rex_w(op_list)) or ...);
     }
 
     static constexpr auto has_b16_opsz_override(X86Op::ListRef op_list) -> i1 {
-        return ((Pattern::match(op_list) and Pattern::has_b16_opsz_override()) or ...);
+        return ((Pattern::match(op_list) and Pattern::has_b16_opsz_override(op_list)) or ...);
     }
 
     static constexpr auto match(X86Op::ListRef op_list) -> i1 {
