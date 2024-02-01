@@ -82,8 +82,6 @@ using namespace std::string_literals;
 #define CAT(x, y) CAT_HELPER(x, y)
 #define CAT_HELPER(x, y) x##y
 
-#define FWD(arg) std::forward<decltype(arg)>(arg)
-
 #define FISKA_PRAGMA_HELPER(x) _Pragma (#x)
 
 #define GCC_DIAG_IGNORE_PUSH(warning) \
@@ -135,27 +133,11 @@ constexpr auto operator+(E e) -> std::underlying_type_t<E> {
 }
 
 template <auto T, std::same_as<decltype(T)> auto... Us>
-auto is(const decltype(T)& arg) -> i1 {
+auto is(const decltype(T)& arg) -> bool {
     return (arg == T) or ((arg == Us) or ...);
 }
 
 namespace utils {
-
-struct File {
-    fs::path path_;
-    Vec<char> code_;
-
-    File(const File&) = delete;
-    File(File&&) = delete;
-    File& operator=(const File&) = delete;
-    File& operator=(File&&) = delete;
-
-    File(fs::path path, Vec<char> code) 
-        : path_(path), code_(std::move(code)) {}
-
-    auto data() const -> const char* { return code_.data(); }
-    auto size() const -> u64 { return code_.size(); }
-};
 
 // Assertion kinds.
 enum struct AK {
@@ -228,23 +210,22 @@ struct DeferType1 {
     }
 };
 
-auto fits_in_u8(i64 num) -> i1;
-auto fits_in_u16(i64 num) -> i1;
-auto fits_in_u24(i64 num) -> i1;
-auto fits_in_u32(i64 num) -> i1;
+auto fits_in_u8(i64 num) -> bool;
+auto fits_in_u16(i64 num) -> bool;
+auto fits_in_u32(i64 num) -> bool;
 
-auto fits_in_i8(i64 num) -> i1;
-auto fits_in_i16(i64 num) -> i1;
-auto fits_in_i32(i64 num) -> i1;
+auto fits_in_i8(i64 num) -> bool;
+auto fits_in_i16(i64 num) -> bool;
+auto fits_in_i32(i64 num) -> bool;
 
-auto fits_in_b8(i64 num) -> i1;
-auto fits_in_b16(i64 num) -> i1;
-auto fits_in_b32(i64 num) -> i1;
+auto fits_in_b8(i64 num) -> bool;
+auto fits_in_b16(i64 num) -> bool;
+auto fits_in_b32(i64 num) -> bool;
 
 auto number_width(u64 num, u32 base = 10) -> u32;
 
 auto load_file(const fs::path& path) -> Vec<char>;
-auto write_file(const void* data, usz size, const fs::path& path) -> i1;
+auto write_file(const void* data, usz size, const fs::path& path) -> bool;
 
 auto random_tmp_path(StrRef extension) -> fs::path;
 

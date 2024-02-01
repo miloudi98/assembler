@@ -28,6 +28,10 @@ auto str_of_bw(BW bit_width) -> StrRef;
 
 // Register Ids.
 // Never change the declaration order or the values of this enumeration.
+// TODO(miloudi): Add a mapping from RI to BW showing the possible sizes for a certain RI.
+// It's useful because non general purpose registers have a set size and also because
+// gprs like 'rip' can't be 8 bits. We need to make sure not to generate those configurations
+// when generating instances.
 enum struct RI {
     Rax = 0,      Es = 16, Cr0 = 24,  Dbg0 = 40, 
     Rcx = 1,      Cs = 17, Cr1 = 25,  Dbg1 = 41, 
@@ -147,6 +151,7 @@ struct Tok {
     static auto spelling(TK kind) -> StrRef;
 };
 
+// TODO(miloudi): Remove this nonsense.
 struct Error {
     ErrKind kind_{};
     Ctx* ctx_{};
@@ -162,10 +167,9 @@ struct Error {
 struct Reg {
     BW bit_width_{};
     RI id_{};
-    i1 new_8_bit_reg_{false};
 
     auto index() const -> u8 { return +id_ & 0x7; }
-    auto requires_ext() const -> bool {
+    auto requires_ext() const -> i1 {
         return (+id_ >= +RI::R8 and +id_ <= +RI::R15)
             or (+id_ >= +RI::Cr8 and +id_ <= +RI::Cr15)
             or (+id_ >= +RI::Dbg8 and +id_ <= +RI::Dbg15);
@@ -250,7 +254,7 @@ struct X86Op {
     X86Op(Inner op) : inner_(op) {}
 
     template <typename... Ts>
-    constexpr bool is() const { return (std::holds_alternative<Ts>(inner_) or ...); }
+    constexpr i1 is() const { return (std::holds_alternative<Ts>(inner_) or ...); }
 
     template <typename T>
     auto as() -> T& { return std::get<T>(inner_); }
@@ -265,20 +269,52 @@ struct X86Op {
 
 // Concept identifying all the x86 operand classes below.
 template <typename T>
-concept IsX86OpClass = requires(X86Op op) {
-    { T::match(op) } -> std::same_as<bool>;
+concept IsX86OpClass = requires(const X86Op& op) {
+    { T::match(op) } -> std::same_as<i1>;
 };
+
+//====================================================================
+// X86OpClass Any combinator. 
+// This combinator will be satisfied if the X86Op passed
+// to it as an argument satisfies any of the X86OpClasses passed as 
+// template arguments.
+//====================================================================
+template <IsX86OpClass... X86OpClass>
+struct Any {
+    static constexpr auto match(const X86Op& op) -> i1 {
+        return (X86OpClass::match(op) or ...);
+    }
+
+    static constexpr auto instances() -> Vec<X86Op> {
+        // Concatenate the instances of the underlying operands.
+        Vec<X86Op> ret;
+
+        auto helper = [&](const Vec<X86Op>& instances) {
+            // TODO(miloudi): reserve memory before you extend the vector.
+            ret.insert(ret.end(), instances.begin(), instances.end());
+        };
+
+        (helper(X86OpClass::instances()), ...);
+        return ret;
+    }
+};
+
+//=====================================================
+// Wild card that accepts any class of x86 operands.
+//=====================================================
+struct any {
+    static constexpr auto match(const X86Op& op) -> i1 { return true; }
+};
+
 //=====================================================
 // Register classes.
 //=====================================================
 template <auto... args>
-struct r {
-    static constexpr auto match(const X86Op&) -> i1 { return false; }
-};
+struct r;
 
 template <BW bit_width>
 struct r<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
+    static constexpr auto match(const X86Op& op) -> i1 {
         return op.is<Reg>() 
             and op.as<Reg>().bit_width_ == bit_width
             and op.as<Reg>().kind() == RK::Gp;
@@ -286,16 +322,11 @@ struct r<bit_width> {
 
     static constexpr auto instances() -> Vec<X86Op> {
         using enum RI;
-
         Vec<X86Op> ret;
 
+        // This needs to change.
         for (u32 ri = +Rax; ri <= +R15; ++ri) {
             ret.push_back({ Reg{bit_width, RI(ri)} });
-        }
-
-        // Add |Rip| if the register is not an 8-bit register.
-        if (bit_width != BW::B8) {
-            ret.push_back({ Reg{bit_width, Rip} });
         }
 
         if (bit_width == BW::B8) {
@@ -309,36 +340,33 @@ struct r<bit_width> {
     }
 };
 
-// FIXME(miloudi): Non GP registers usually have a fixed size. You don't really
-// need to specify their bitwidth.
-template <BW bit_width, RK kind>
-struct r<bit_width, kind> {
-    static constexpr auto match(const X86Op& op) -> bool {
+template <RK kind>
+struct r<kind> {
+    static constexpr auto match(const X86Op& op) -> i1 {
         return op.is<Reg>()
-            and op.as<Reg>().bit_width_ == bit_width
             and op.as<Reg>().kind() == kind;
     }
 
     static constexpr auto instances() -> Vec<X86Op> {
         using enum RI;
+        using enum BW;
 
-        // Use the r<BW> specialization if you want a GP register class.
-        assert(kind != RK::Gp);
+        if (kind == RK::Gp) { return Any<r<B8>, r<B16>, r<B32>, r<B64>>::instances(); }
 
         Vec<X86Op> ret;
-
-        auto [start_ri, end_ri] = [&] {
+        auto [start_ri, end_ri, bw] = [&] {
             switch (kind) {
-            case RK::Seg: return std::make_pair(+Es, +Gs);
-            case RK::Ctrl: return std::make_pair(+Cr0, +Cr15);
-            case RK::Dbg: return std::make_pair(+Dbg0, +Dbg15);
-            case RK::Gp: unreachable("Use the r<BW> specialization if you want a GP register class.");
+            case RK::Seg: return std::make_tuple(+Es, +Gs, B16);
+            case RK::Ctrl: return std::make_tuple(+Cr0, +Cr15, B64);
+            case RK::Dbg: return std::make_tuple(+Dbg0, +Dbg15, B64);
+            // handled earlier.
+            case RK::Gp: unreachable();
             } // switch
             unreachable();
         }();
 
-        for (u32 ri = start_ri; ri <= end_ri; ++ri) {
-            ret.push_back({ Reg{bit_width, RI(ri)} });
+        for (int ri = start_ri; ri <= end_ri; ++ri) {
+            ret.push_back({ Reg{bw, RI(ri)} });
         }
 
         return ret;
@@ -347,7 +375,7 @@ struct r<bit_width, kind> {
 
 template <BW bit_width, RI id>
 struct r<bit_width, id> {
-    static constexpr auto match(const X86Op& op) -> bool {
+    static constexpr auto match(const X86Op& op) -> i1 {
         if (not op.is<Reg>()) { return false; }
 
         const Reg& reg = op.as<Reg>();
@@ -371,6 +399,8 @@ struct r<id> {
 
         Vec<X86Op> ret;
         for (BW w : {B8, B16, B32, B64}) {
+            if (id == RI::Rip and w == B8) { continue; }
+
             ret.push_back({ Reg{w, id} });
         }
         return ret;
@@ -385,7 +415,7 @@ struct m;
 
 template <BW bit_width>
 struct m<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
+    static constexpr auto match(const X86Op& op) -> i1 {
         return op.is<Mem>() and op.as<Mem>().bit_width_ == bit_width;
     }
 
@@ -464,13 +494,34 @@ struct m<base_id, index_id> {
 // TODO(miloudi): Plot performance regressions on every commit. By performance
 // we simply mean the time it took to execute the millions of automatic tests
 // we have that tests every possible instruction.
-template <r base_reg_class>
+template <IsX86OpClass auto base_reg_class>
 struct m<base_reg_class> {
     static constexpr auto match(const X86Op& op) -> i1 {
-        return op.is<Mem>()
-            and op.as<Mem>().base_reg_
-            and base_reg_class.match({op.as<Mem>().base_reg_.value()});
+        if (not op.is<Mem>()) { return false; }
+
+        constexpr bool is_any_base_reg_class = std::same_as<decltype(base_reg_class), any>;
+
+        const Mem& mem = op.as<Mem>();
+
+        return is_any_base_reg_class or (mem.base_reg_ and base_reg_class.match({*mem.base_reg_}));
     }
+};
+
+template <IsX86OpClass auto base_reg_class, IsX86OpClass auto index_reg_class>
+struct m<base_reg_class, index_reg_class> {
+    static constexpr auto match(const X86Op& op) -> i1 {
+        if (not op.is<Mem>()) { return false; }
+
+        constexpr bool accepts_any_base_reg = std::same_as<std::remove_cvref_t<decltype(base_reg_class)>, any>;
+        constexpr bool accepts_any_index_reg = std::same_as<std::remove_cvref_t<decltype(index_reg_class)>, any>;
+
+        const Mem& mem = op.as<Mem>();
+
+        i1 base_reg_match = accepts_any_base_reg or (mem.base_reg_ and base_reg_class.match({*mem.base_reg_}));
+        i1 index_reg_match = accepts_any_index_reg or (mem.index_reg_ and index_reg_class.match({*mem.index_reg_}));
+
+        return base_reg_match and index_reg_match;
+    };
 };
 
 //=====================================================
@@ -481,7 +532,7 @@ struct i;
 
 template <BW bit_width>
 struct i<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
+    static constexpr auto match(const X86Op& op) -> i1 {
         return op.is<Imm>() 
             and op.as<Imm>().bit_width_ == bit_width;
     }
@@ -489,11 +540,11 @@ struct i<bit_width> {
     static constexpr auto instances(i64 n_inst = 10) -> Vec<X86Op> {
         Vec<X86Op> ret;
         // Generate random numbers that fit in |bit_width| bits.
-        i64 mn = -(1 << (+bit_width - 1));
-        i64 mx = (1 << (+bit_width - 1)) - 1;
+        i64 mn = -(1LL << (+bit_width - 1));
+        i64 mx = (1LL << (+bit_width - 1LL)) - 1LL;
 
         std::mt19937 gen(std::random_device{}());
-        std::uniform_int_distribution<> imms(mn, mx);
+        std::uniform_int_distribution<i64> imms(mn, mx);
         while (n_inst--) { ret.push_back({ Imm{bit_width, imms(gen)} }); }
         return ret;
     }
@@ -507,7 +558,7 @@ struct mo;
 
 template <BW bit_width>
 struct mo<bit_width> {
-    static constexpr auto match(const X86Op& op) -> bool {
+    static constexpr auto match(const X86Op& op) -> i1 {
         return op.is<Moffs>() 
             and op.as<Moffs>().bit_width_ == bit_width;
     }
@@ -516,34 +567,8 @@ struct mo<bit_width> {
         Vec<X86Op> ret;
 
         std::mt19937 gen(std::random_device{}());
-        std::uniform_int_distribution<> moffsets(0, std::numeric_limits<u64>::max());
+        std::uniform_int_distribution<i64> moffsets(std::numeric_limits<i64>::min(), std::numeric_limits<i64>::max());
         while (n_inst--) { ret.push_back({ Moffs{bit_width, moffsets(gen)} }); }
-        return ret;
-    }
-};
-
-//====================================================================
-// X86OpClass Any combinator. 
-// This combinator will be satisfied if the X86Op passed
-// to it as an argument satisfies any of the X86OpClasses passed as 
-// template arguments.
-//====================================================================
-template <IsX86OpClass... X86OpClass>
-struct Any {
-    static constexpr auto match(const X86Op& op) -> bool {
-        return (X86OpClass::match(op) or ...);
-    }
-
-    static constexpr auto instances() -> Vec<X86Op> {
-        // Concatenate the instances of the underlying operands.
-        Vec<X86Op> ret;
-
-        auto helper = [&](const Vec<X86Op>& instances) {
-            // TODO(miloudi): reserve memory before you extend the vector.
-            ret.insert(ret.end(), instances.begin(), instances.end());
-        };
-
-        (helper(X86OpClass::instances()), ...);
         return ret;
     }
 };
@@ -581,10 +606,7 @@ union Rex {
     };
     u8 raw;
 
-    // TODO(miloudi): Make this function take in the list of operands and 
-    // check whether we have any of the new 8-bit registers. If we do, then we need
-    // to output the REX prefix with the mod alone, meaning we need to return true.
-    auto is_required(Span<const X86Op> ops) const -> bool {
+    auto is_required(Span<const X86Op> ops) const -> i1 {
         using enum BW;
         using enum RI;
         using new_low_byte_regs = Any< 
@@ -594,9 +616,7 @@ union Rex {
             ::fiska::r<B8, Rdi>
         >;
 
-        if (w or r or x or b) { return true; }
-
-        return rgs::any_of(ops, new_low_byte_regs::match);
+        return w or r or x or b or rgs::any_of(ops, new_low_byte_regs::match);
     }
 };
 
@@ -639,7 +659,7 @@ struct Expr {
     virtual ~Expr() = default;
 
     // Create an expression and bind it to its parent module.
-    void* operator new(usz sz, Module* mod, bool is_top_level_expr);
+    void* operator new(usz sz, Module* mod, i1 is_top_level_expr);
     // Disallow creating expressions with no owner module.
     void* operator new(usz sz) = delete;
 };
@@ -726,7 +746,7 @@ struct Lexer {
         next_tok();
     }
 
-    auto eof() -> bool { return curr_ >= end_; }
+    auto eof() -> i1 { return curr_ >= end_; }
     auto tok() -> Tok&;
     auto peek_c() -> char;
     auto file_offset() -> u32;
@@ -853,11 +873,11 @@ struct Parser {
 
     explicit Parser(File* file, Module* mod); 
 
-    auto at(std::same_as<TK> auto... tok_tys) -> bool {
+    auto at(std::same_as<TK> auto... tok_tys) -> i1 {
         return ((tok().kind_ == tok_tys) or ...);
     }
 
-    auto consume(std::same_as<TK> auto... tok_tys) -> bool {
+    auto consume(std::same_as<TK> auto... tok_tys) -> i1 {
         if (not at(tok_tys...)) { return false; }
         next_tok();
         return true;
@@ -902,7 +922,7 @@ struct Parser {
     template <OneOf<Reg, Imm, Mem, Moffs> Type>
     auto try_parse_x86_operand() -> Opt<Type>;
 
-    auto match_next_toks(std::same_as<TK> auto... tok_tys) -> bool {
+    auto match_next_toks(std::same_as<TK> auto... tok_tys) -> i1 {
         u32 lookahead = 0;
         auto match_tok = [&](TK tok_kind) {
             return peek_tok(lookahead++).kind_ == tok_kind;
@@ -932,7 +952,7 @@ struct ModulePrinter {
     UTF32Str prev_line_prefix_{};
     UTF32Str out_{};
 
-    auto line_prefix(bool is_last) -> UTF32Str; 
+    auto line_prefix(i1 is_last) -> UTF32Str; 
 
     template <typename T>
     auto c(const T& value, const fmt::text_style& ts) const -> Str {
@@ -940,16 +960,18 @@ struct ModulePrinter {
     }
 
     void print_module_helper(Module* mod);
-    void print(Expr* expr, bool is_last);
-    void print(X86Instruction* instruction, bool is_last);
-    void print(const X86Op& op, bool is_last);
+    void print(Expr* expr, i1 is_last);
+    void print(X86Instruction* instruction, i1 is_last);
+    void print(const X86Op& op, i1 is_last);
     static void print_module(Module* mod);
 };
 
 struct ByteStream {
-    ByteVec out_{};
+    ByteVec out_;
 
-    ByteStream() {}
+    ByteStream() {
+        out_.reserve(15);
+    }
     // No copies or moves allowed.
     ByteStream(const ByteStream&) = delete;
     ByteStream(ByteStream&&) = delete;
@@ -970,7 +992,7 @@ struct ByteStream {
 // Concept identifying x86 operand patterns.
 template <typename T>
 concept IsInstrPat = requires(T) {
-    { T::match(Span<const X86Op>{}) } -> std::same_as<bool>;
+    { T::match(Span<const X86Op>{}) } -> std::same_as<i1>;
 };
 //====================================================================
 // Patterns of x86 operands. 
@@ -991,65 +1013,72 @@ template <Rex_W rex_w, B16OpSz b16_opsz, IsX86OpClass... X86Ops>
 struct Pat {
     static constexpr auto needs_rex_w(Span<const X86Op> ops) -> i1 { return +rex_w; }
 
+    // TODO(miloudi): Remove the |is_b16_opsz| function. The name is bad.
     static constexpr auto is_b16_opsz(Span<const X86Op> ops) -> i1 { return +b16_opsz; }
 
-    static constexpr auto instances() -> Buffer<Buffer<X86Op>> {
-        auto cartesian_product = vws::cartesian_product(X86Ops::instances()...);
-        auto sz = std::distance(std::begin(cartesian_product), std::end(cartesian_product));
+    static constexpr auto needs_b16_opsz_override(Span<const X86Op> ops) -> i1 { return +b16_opsz; }
 
-        Buf<Buf<X86Op>> ret(sz, Buf<X86Op>{pat_sz});
+    static constexpr auto instances() -> Vec<Vec<X86Op>> {
+        Vec<Vec<X86Op>> ret;
 
-        for (const auto& t : cartesian_product) {
-            // How to transform a tuple to an array: https://stackoverflow.com/questions/10604794/convert-stdtuple-to-stdarray-c11
+        using legacy_high_byte_regs = Any<
+            r<BW::B8, RI::Rah>,
+            r<BW::B8, RI::Rch>,
+            r<BW::B8, RI::Rdh>,
+            r<BW::B8, RI::Rbh>
+                >;
+
+        using new_low_byte_regs = Any<
+            r<BW::B8, RI::Rsp>,
+            r<BW::B8, RI::Rbp>,
+            r<BW::B8, RI::Rsi>,
+            r<BW::B8, RI::Rdi>
+                >;
+
+        using gprs_requiring_rex = Any<
+            new_low_byte_regs,
+
+            r<RI::R8>, r<RI::R9>, r<RI::R10>,
+            r<RI::R11>, r<RI::R12>, r<RI::R13>,
+            r<RI::R14>, r<RI::R15>
+        >;
+
+        using mem_refs_requiring_rex = Any<
+            m<gprs_requiring_rex{}, any{}>,
+            m<any{}, gprs_requiring_rex{}>
+                >;
+
+        using x86_op_requiring_rex = Any<gprs_requiring_rex, mem_refs_requiring_rex>;
+
+        auto is_illegal = [](const Vec<X86Op>& op_list) {
+            return rgs::any_of(op_list, legacy_high_byte_regs::match)
+               and rgs::any_of(op_list, x86_op_requiring_rex::match);
+        };
+
+        auto to_vec = [](auto&&... args) {
+            return {std::forward<decltype(args)>(args)...};
+        };
+
+        for (const auto& t : vws::cartesian_product(X86Ops::instances()...)) {
+            Vec<X86Op> op_list = std::apply(to_vec, t);
+            if (is_illegal(op_list)) { continue; }
+            ret.push_back(std::move(op_list));
         }
+
+        return ret;
     };
 
-    static constexpr auto match(Span<const X86Op> ops) -> bool {
+    static constexpr auto match(Span<const X86Op> ops) -> i1 {
+        static_assert(sizeof...(X86Ops) < 255 and "op_idx overflow");
         using enum BW;
         using enum RI;
 
         static constexpr usz pat_sz = sizeof...(X86Ops);
-        static_assert(pat_sz < 255 and "op_idx overflow");
 
         if (pat_sz != ops.size()) { return false; }
 
         u8 op_idx = 0;
-        if (not (X86Ops::match(ops[op_idx++]) and ...)) { return false; }
-
-        using rex_byte_regs = Any<
-            r<B8, RI::Rsp>,
-            r<B8, RI::Rbp>,
-            r<B8, RI::Rsi>,
-            r<B8, RI::Rdi>
-        >;
-        using high_byte_regs = Any<
-            r<B8, RI::Rah>,
-            r<B8, RI::Rch>,
-            r<B8, RI::Rdh>,
-            r<B8, RI::Rbh>
-        >;
-        i1 pat_has_high_byte_regs = rgs::any_of(ops, high_byte_regs::match);
-
-        i1 has_rex = +rex_w;
-        for (const X86Op& op : ops) {
-            has_rex |= (op.is<Reg>() and op.as<Reg>().requires_ext());
-            has_rex |= rex_byte_regs::match(op);
-
-            if (op.is<Mem>()) {
-                const Mem& mem = op.as<Mem>();
-
-                has_rex |= mem.base_reg_ and mem.base_reg_->requires_ext();
-                has_rex |= mem.index_reg_ and mem.index_reg_->requires_ext();
-                // TODO(miloudi): you can create a mem blueprint that matches all memory 
-                // references that require an extended reg.
-                // using extended_reg = Any<r8, r9, ....>;
-                // it's that simple.
-                // using extended_mem = m<extended_reg{}, extended_reg{}>;
-                // has_rex |= m<r<>{}, r<R8>{}>::match(op);
-            }
-        }
-
-        return not (has_rex and pat_has_high_byte_regs);
+        return (X86Ops::match(ops[op_idx++]) and ...);
     }
 };
 
@@ -1062,12 +1091,28 @@ struct Or {
         return ((Pattern::match(ops) and Pattern::needs_rex_w(ops)) or ...);
     }
 
+    static constexpr auto needs_b16_opsz_override(Span<const X86Op> ops) -> i1 { 
+        return is_b16_opsz(ops);
+    }
+
     static constexpr auto is_b16_opsz(Span<const X86Op> ops) -> i1 {
         return ((Pattern::match(ops) and Pattern::is_b16_opsz(ops)) or ...);
     }
 
-    static constexpr auto match(Span<const X86Op> ops) -> bool {
+    static constexpr auto match(Span<const X86Op> ops) -> i1 {
         return (Pattern::match(ops) or ...);
+    }
+
+    static constexpr auto instances() -> Vec<Vec<X86Op>> {
+        Vec<Vec<X86Op>> ret;
+
+        auto helper = [&]<typename T>() {
+            Vec<Vec<X86Op>> insts = T::instances();
+            ret.insert(ret.end(), insts.begin(), insts.end()); 
+        };
+
+        (helper.template operator()<Pattern>(), ...);
+        return ret;
     }
 };
 
@@ -1240,7 +1285,7 @@ struct Emitter<OpEn::MI> {
         };
 
         Rex rex {
-            .b = ops[0].is<Reg>() ? ops[0].as<Reg>().requires_ext() : bool(0),
+            .b = ops[0].is<Reg>() ? ops[0].as<Reg>().requires_ext() : i1(0),
             .w = rex_w
         };
 
@@ -1264,9 +1309,9 @@ struct Emitter<OpEn::MI> {
 
 // TODO(miloudi): Explain what this type does.
 struct InstrExpr {
-    using MatchFunction = bool(*)(Span<const X86Op>);
-    using RexWFunction = bool(*)(Span<const X86Op>);
-    using B16OpSzOverrideFunction = bool(*)(Span<const X86Op>);
+    using MatchFunction = i1(*)(Span<const X86Op>);
+    using RexWFunction = i1(*)(Span<const X86Op>);
+    using B16OpSzOverrideFunction = i1(*)(Span<const X86Op>);
     using EmitFunction = ByteVec(*)(ByteVec, Span<const X86Op>, i1 rex_w, i1 b16_opsz);
 
     MatchFunction match_{};
@@ -1277,7 +1322,7 @@ struct InstrExpr {
 
     template <typename Matcher, typename Emitter>
     requires requires (ByteVec opcode, Span<const X86Op> ops, i1 rex_w, i1 b16_opsz) {
-        { Matcher::match(ops) } -> std::same_as<bool>;
+        { Matcher::match(ops) } -> std::same_as<i1>;
         { Emitter::emit(opcode, ops, rex_w, b16_opsz) } -> std::same_as<ByteVec>;
     }
     /*implicit*/ InstrExpr(ByteVec opcode, Matcher, Emitter) : 
@@ -1285,13 +1330,86 @@ struct InstrExpr {
             opcode_(opcode), rex_w_(Matcher::needs_rex_w), b16_opsz_(Matcher::is_b16_opsz)
     {}
 
-    auto match(Span<const X86Op> ops) const -> bool { return match_(ops); }
+    auto match(Span<const X86Op> ops) const -> i1 { return match_(ops); }
     auto emit(Span<const X86Op> ops) const -> ByteVec { return emit_(opcode_, ops, rex_w_(ops), b16_opsz_(ops)); }
+};
+
+template <u8... bs>
+struct Op {
+    static constexpr std::array bytes{bs...};
+};
+
+// TODO(miloudi): Remove the |_test| from the class name.
+template <typename OpCode, typename Pattern, typename Emitter>
+struct InstrExpr_test {
+    using opcode = OpCode;
+    using pattern = Pattern;
+    using emitter = Emitter;
+    using X86OpList = const Vec<X86Op>&;
+
+    static constexpr auto match(X86OpList op_list) -> i1 {
+        return Pattern::match(op_list);
+    }
+
+    // TODO(miloudi): Replace the ByteVec with a Buffer<>;
+    static constexpr auto emit(X86OpList op_list) -> ByteVec {
+        return Emitter::emit(
+            ByteVec{OpCode::bytes.begin(), OpCode::bytes.end()},
+            op_list,
+            Pattern::needs_rex_w(op_list),
+            Pattern::needs_b16_opsz_override(op_list)
+        );
+    }
+};
+
+template <typename... InstrExprs>
+struct InstrExprList {
+    using X86OpList = const Vec<X86Op>&;
+
+    static constexpr auto is_valid_op_list(X86OpList op_list) -> i1 {
+        return (InstrExprs::match(op_list) and ...);
+    }
+    
+    static constexpr auto emit(X86OpList op_list) -> ByteVec {
+        ByteVec ret;
+
+        // TODO(miloudi): Remove the _test from the name.
+        auto check_for_match = [&]<typename InstrExpr_test>() {
+            // Return the first match to stay consistent with gas.
+            if (not ret.empty()) { return; }
+
+            if (InstrExpr_test::match(op_list)) {
+                ret = InstrExpr_test::emit(op_list);
+            }
+        };
+
+        (check_for_match.template operator()<InstrExprs>(), ...);
+
+        return ret;
+    }
+
+    static constexpr auto instances() -> Vec<Vec<X86Op>> {
+        Vec<Vec<X86Op>> ret;
+
+        auto get_pat_instances = [&]<typename InstrExpr>() {
+            auto v = InstrExpr::pattern::instances();
+            ret.insert(ret.end(), v.begin(), v.end());
+        };
+
+        (get_pat_instances.template operator()<InstrExprs>(), ...);
+
+        return ret;
+    }
+};
+
+struct InstrHandler {
+
 };
 
 struct Assembler {
     // Global instruction table.
     static inline std::unordered_map<X86IK, Vec<InstrExpr>> git_;
+    static inline HashMap<X86IK, InstrHandler> git;
 
     Assembler();
     // No copies or moves allowed.
@@ -1307,7 +1425,7 @@ struct Assembler {
     static auto encode(const Vec<X86Op>& ops) -> ByteVec;
 
     template <X86IK ik>
-    static auto is_valid_instr(const Vec<X86Op>& ops) -> bool {
+    static auto is_valid_instr(const Vec<X86Op>& ops) -> i1 {
         return not encode<ik>(ops).empty();
     }
 };

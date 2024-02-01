@@ -1,9 +1,15 @@
-#include "lib/core.hh"
-#include "lib/x86_core.hh"
-#include "lib/front_end.hh"
-#include "lib/elf.hh"
+//#include "lib/core.hh"
+//#include "lib/x86_core.hh"
+//#include "lib/front_end.hh"
+//#include "lib/elf.hh"
 
-using namespace fiska;
+#include "lib/core.hh"
+#include "lib/x86_patterns.hh"
+#include "lib/x86_utils.hh"
+#include "lib/x86_assembler.hh"
+#include "lib/instructions/mov.hh"
+
+using namespace fiska::x86;
 
 //constexpr std::string_view file_name = "/home/jawad/fiska/dev/x86_assembler/tests/mov.fiska";
 
@@ -51,7 +57,13 @@ using namespace fiska;
 //}
 
 auto main(i32 argc, char* argv[]) -> i32 {
-    using enum BW;
-    run_global_tests();
+    AsCtx::init();
+    fmt::print("rax = {}, es = {}\n", +RI::Rax, +RI::Es);
+    fmt::print("rah = {}, rbh = {}\n", +RI::Rah, +RI::Rbh);
+    fmt::print("AssemblerCtx::kbw_of_ri.size() = {}\n", AsCtx::kbw_of_ri.size());
+
+    fmt::print("mov::instances().size() = {}\n", instructions::mov::instances().size());
+    //using enum BW;
+    //run_global_tests();
     return 0;
 }

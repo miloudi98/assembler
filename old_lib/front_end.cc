@@ -1077,7 +1077,7 @@ using r8 = r<BW::B8>;
 using r16 = r<BW::B16>;
 using r32 = r<BW::B32>;
 using r64 = r<BW::B64>;
-using sreg = r<BW::B16, RK::Seg>;
+using sreg = r<RK::Seg>;
 
 using m8 = m<BW::B8>;
 using m16 = m<BW::B16>;
@@ -1102,10 +1102,206 @@ using imm16 = i<BW::B16>;
 using imm32 = i<BW::B32>;
 using imm64 = i<BW::B64>;
 
-using cr = r<BW::B64, RK::Ctrl>;
-using dbg = r<BW::B64, RK::Dbg>;
+using cr = r<RK::Ctrl>;
+using dbg = r<RK::Dbg>;
+
+using legacy_high_byte_regs = Any<
+    r<BW::B8, RI::Rah>,
+    r<BW::B8, RI::Rch>,
+    r<BW::B8, RI::Rdh>,
+    r<BW::B8, RI::Rbh>
+>;
+
+using new_low_byte_regs = Any<
+    r<BW::B8, RI::Rsp>,
+    r<BW::B8, RI::Rbp>,
+    r<BW::B8, RI::Rsi>,
+    r<BW::B8, RI::Rdi>
+>;
+
+using regs_requiring_rex = Any<
+    new_low_byte_regs,
+
+    r<RI::R8>, r<RI::R9>, r<RI::R10>,
+    r<RI::R11>, r<RI::R12>, r<RI::R13>,
+    r<RI::R14>, r<RI::R15>,
+
+    r<RI::Cr8>, r<RI::Cr9>, r<RI::Cr10>,
+    r<RI::Cr11>, r<RI::Cr12>, r<RI::Cr13>,
+    r<RI::Cr14>, r<RI::Cr15>,
+
+    r<RI::Dbg8>, r<RI::Dbg9>, r<RI::Dbg10>,
+    r<RI::Dbg11>, r<RI::Dbg12>, r<RI::Dbg13>,
+    r<RI::Dbg14>, r<RI::Dbg15>
+>;
+
+using mem_refs_requiring_rex = Any<
+    m<regs_requiring_rex{}, any{}>,
+    m<any{}, regs_requiring_rex{}>
+>;
+
+using x86_op_requiring_rex = Any<regs_requiring_rex, mem_refs_requiring_rex>;
 
 } // namespace
+
+// TODO(miloudi): Have this type alias inside the mov instruction itself.
+using mov_1 = InstrExprList<
+    // 0x88 MOV r/m8, r8 -- MR
+    InstrExpr_test<
+        Op<0x88>,
+        Pat<Rex_W::No, B16OpSz::No, rm8, r8>,
+        Emitter<OpEn::MR>
+    >,
+    // 0x89 MOV r/m16, r16 -- MR
+    // 0x89 MOV r/m32, r32 -- MR
+    // 0x89 MOV r/m64, r64 -- MR
+    InstrExpr_test<
+        Op<0x89>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::Yes, rm16, r16>,
+            Pat<Rex_W::No, B16OpSz::No, rm32, r32>,
+            Pat<Rex_W::Yes, B16OpSz::No, rm64, r64>
+        >,
+        Emitter<OpEn::MR>
+    >,
+    // 0x8A MOV r8, r/m8 -- RM
+    InstrExpr_test<
+        Op<0x8a>,
+        Pat<Rex_W::No, B16OpSz::No, r8, rm8>,
+        Emitter<OpEn::MR>
+    >,
+    // 0x8B MOV r16, r/m16 -- RM
+    // 0x8B MOV r32, r/m32 -- RM
+    // 0x8B MOV r64, r/m64 -- RM
+    InstrExpr_test<
+        Op<0x8b>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::Yes, r16, rm16>,
+            Pat<Rex_W::No, B16OpSz::No, r32, rm32>,
+            Pat<Rex_W::Yes, B16OpSz::No, r64, rm64>
+        >,
+        Emitter<OpEn::RM>
+    >,
+    // 0x8C MOV r/m16, Sreg       -- MR
+    // 0x8C MOV r16/r32/m16, Sreg -- MR
+    // 0x8C MOV r64/m16, Seg      -- MR
+    InstrExpr_test<
+        Op<0x8c>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::No, Any<m16, r32>, sreg>,
+            Pat<Rex_W::No, B16OpSz::Yes, r16, sreg>,
+            Pat<Rex_W::Yes, B16OpSz::No, r64, sreg>
+        >,
+        Emitter<OpEn::MR>
+    >,
+    // 0x8E MOV Sreg, r/m16 -- RM
+    // 0x8E MOV Sreg, r/m64 -- RM
+    InstrExpr_test<
+        Op<0x8e>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::No, sreg, m16>,
+            Pat<Rex_W::No, B16OpSz::Yes, sreg, r16>,
+            Pat<Rex_W::Yes, B16OpSz::No, sreg, rm64>
+        >,
+        Emitter<OpEn::RM>
+    >,
+    // 0xA0 MOV AL, moffs8   -- FD
+    InstrExpr_test<
+        Op<0xa0>,
+        Pat<Rex_W::No, B16OpSz::No, r<BW::B8, RI::Rax>, moffs8>,
+        Emitter<OpEn::FD>
+    >,
+    // 0xA1 MOV AX, moffs16  -- FD
+    // 0xA1 MOV EAX, moffs32 -- FD
+    // 0xA1 MOV RAX, moffs64 -- FD
+    InstrExpr_test<
+        Op<0xa1>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::Yes, r<BW::B16, RI::Rax>, moffs16>,
+            Pat<Rex_W::No, B16OpSz::No, r<BW::B32, RI::Rax>, moffs32>,
+            Pat<Rex_W::Yes, B16OpSz::No, r<BW::B64, RI::Rax>, moffs64>
+        >,
+        Emitter<OpEn::FD>
+    >,
+    // 0xA2 MOV moffs8, AL -- TD
+    InstrExpr_test<
+        Op<0xa2>,
+        Pat<Rex_W::No, B16OpSz::No, moffs8, r<BW::B8, RI::Rax>>,
+        Emitter<OpEn::TD>
+    >,
+    // 0xA3 MOV moffs16, AX  -- TD
+    // 0xA3 MOV moffs32, EAX -- TD
+    // 0xA3 MOV moffs64, RAX -- TD
+    InstrExpr_test<
+        Op<0xa3>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::Yes, moffs16, r<BW::B16, RI::Rax>>,
+            Pat<Rex_W::No, B16OpSz::No, moffs32, r<BW::B32, RI::Rax>>,
+            Pat<Rex_W::Yes, B16OpSz::No, moffs64, r<BW::B64, RI::Rax>>
+        >,
+        Emitter<OpEn::TD>
+    >,
+    // 0xB0 MOV r8, imm8 -- OI
+    InstrExpr_test<
+        Op<0xb0>,
+        Pat<Rex_W::No, B16OpSz::No, r8, imm8>,
+        Emitter<OpEn::OI>
+    >,
+    // 0xB8 MOV r16, imm16 -- OI
+    // 0xB8 MOV r32, imm32 -- OI
+    // 0xB8 MOV r64, imm64 -- OI
+    InstrExpr_test<
+        Op<0xb8>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::Yes, r16, imm16>,
+            Pat<Rex_W::No, B16OpSz::No, r32, imm32>,
+            Pat<Rex_W::Yes, B16OpSz::No, r64, imm64>
+        >,
+        Emitter<OpEn::OI>
+    >,
+    // 0xC6 MOV r/m8, imm8 -- MI
+    InstrExpr_test<
+        Op<0xc6>,
+        Pat<Rex_W::No, B16OpSz::No, rm8, imm8>,
+        Emitter<OpEn::MI>
+    >,
+    // 0xC7 MOV r/m16, imm16 -- MI
+    // 0xC7 MOV r/m32, imm32 -- MI
+    // 0xC7 MOV r/m64, imm32 -- MI
+    InstrExpr_test<
+        Op<0xc7>,
+        Or<
+            Pat<Rex_W::No, B16OpSz::Yes, rm16, imm16>,
+            Pat<Rex_W::No, B16OpSz::No, rm32, imm32>,
+            Pat<Rex_W::Yes, B16OpSz::No, rm64, imm32>
+        >,
+        Emitter<OpEn::MI>
+    >,
+    // 0x0F 0x20 MOV r64, CR0-CR8 -- MR
+    InstrExpr_test<
+        Op<0x0f, 0x20>,
+        Pat<Rex_W::No, B16OpSz::No, r64, cr>,
+        Emitter<OpEn::MR>
+    >,
+    // 0x0F 0x22 MOV CR0-CR8, r64 -- RM
+    InstrExpr_test<
+        Op<0x0f, 0x22>,
+        Pat<Rex_W::No, B16OpSz::No, cr, r64>,
+        Emitter<OpEn::RM>
+    >,
+    // 0x0F 0x21 MOV r64, DR0-DR7 -- MR 
+    InstrExpr_test<
+        Op<0x0f, 0x21>,
+        Pat<Rex_W::No, B16OpSz::No, r64, dbg>,
+        Emitter<OpEn::MR>
+    >,
+    // 0x0F 0x23 MOV DR0-DR7, r64 -- RM
+    InstrExpr_test<
+        Op<0x0f, 0x23>,
+        Pat<Rex_W::No, B16OpSz::No, dbg, r64>,
+        Emitter<OpEn::RM>
+    >
+>;
 
 template <>
 void fiska::Assembler::register_instruction<X86IK::Mov>() {
@@ -1141,6 +1337,7 @@ void fiska::Assembler::register_instruction<X86IK::Mov>() {
         Pat<Rex_W::No, B16OpSz::No, r8, rm8>{},
         Emitter<RM>{}
     });
+
 
     // 0x8B MOV r16, r/m16 -- RM
     // 0x8B MOV r32, r/m32 -- RM
@@ -1295,12 +1492,14 @@ template <X86IK ik>
 auto fiska::Assembler::encode(const Vec<X86Op>& ops) -> ByteVec {
     assert(git_.contains(ik), "Unsupported instruction.");
 
-    for (const InstrExpr& instr_expr : git_[ik]) {
-        if (not instr_expr.match(ops)) { continue; }
-        return instr_expr.emit(ops);
-    }
-
-    return {};
+    //for (const InstrExpr& instr_expr : git_[ik]) {
+    //    if (not instr_expr.match(ops)) { continue; }
+    //    return instr_expr.emit(ops);
+    //}
+    //fmt::print("computing...\n");
+    //fmt::print("size of all instructions = {}\n", mov_1::instances().size());
+    //fmt::print("finished...\n");
+    return mov_1::emit(ops);
 }
 
 fiska::Assembler::Assembler() {

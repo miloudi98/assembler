@@ -1,2 +1,0 @@
-- [ ] Elf file builder
-- [ ] test runner to check the output with GNU's output.

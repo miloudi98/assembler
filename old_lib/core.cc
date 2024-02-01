@@ -44,7 +44,6 @@ auto fits_in_signed(i64 num) -> bool {
 
 auto utils::fits_in_u8(i64 num) -> bool { return fits_in_unsigned<u8>(num); }
 auto utils::fits_in_u16(i64 num) -> bool { return fits_in_unsigned<u16>(num); }
-auto utils::fits_in_u24(i64 num) -> bool { return num >= 0 and num <= (1 << 24) - 1; }
 auto utils::fits_in_u32(i64 num) -> bool { return fits_in_unsigned<u32>(num); }
 
 auto utils::fits_in_i8(i64 num) -> bool { return fits_in_signed<i8>(num); }
@@ -154,4 +153,3 @@ auto utils::write_file(const void* data, usz size, const fs::path& path) -> bool
     }
     return true;
 }
-
