@@ -94,7 +94,8 @@ enum struct OpEn {
     FD,
     TD,
     OI,
-    MI
+    MI,
+    I
 };
 
 union Sib {

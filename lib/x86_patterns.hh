@@ -396,6 +396,12 @@ using sreg = r<RK::Seg>;
 using cr = r<RK::Ctrl>;
 // Dbg — A debug register. Debug registers are Dbg0 -- Dbg15. 
 using dbg = r<RK::Dbg>;
+// Rax, Eax, Ax, Al — Patterns for parts of the register Rax. We create patterns for them since
+// they are used a lot in instructions.
+using rax = r<BW::B64, RI::Rax>;
+using eax = r<BW::B32, RI::Rax>;
+using ax = r<BW::B16, RI::Rax>;
+using al = r<BW::B8, RI::Rax>;
 // ne_byte_rgs_with_rex — Byte registers that are not encodable when a REX prefix is present.
 using ne_byte_regs_with_rex = Alt<
     r<RI::Rah>,

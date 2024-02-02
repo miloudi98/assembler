@@ -307,6 +307,23 @@ struct Emitter<OpEn::MI> {
     }
 };
 
+template <>
+struct Emitter<OpEn::I> {
+    static constexpr auto emit(u64 opcode, X86Op::ListRef op_list, i1 has_rex_w, i1 has_b16_opsz_override) -> InstructionBuf {
+        assert(op_list.size() == 2 and (op_list[0].is<Reg>() and op_list[1].is<Imm>()));
+
+        InstructionBuf out{};
+
+        // Operand size override to 16-bits. We always assume we are in 64-bit mode.
+        if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
+
+        out.append_opcode(opcode);
+        out.append(op_list[1].as<Imm>().bw_, u64(op_list[1].as<Imm>().value_));
+
+        return out;
+    }
+};
+
 GCC_DIAG_IGNORE_POP();
 
 //====================================================================

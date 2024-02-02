@@ -8,6 +8,7 @@
 #include "lib/x86_utils.hh"
 #include "lib/x86_assembler.hh"
 #include "lib/instructions/mov.hh"
+#include "lib/instructions/add.hh"
 #include "lib/testing/elf.hh"
 
 #include <cstring>
@@ -19,6 +20,7 @@ auto main(i32 argc, char* argv[]) -> i32 {
     using enum BW;
 
     Vec<X86Op::List> insts = instructions::mov::instances();
+    Vec<X86Op::List> insts2 = instructions::add::instances();
 
     X86Instruction::List x86_instructions;
     x86_instructions.reserve(insts.size());
