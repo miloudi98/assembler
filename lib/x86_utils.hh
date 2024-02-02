@@ -188,10 +188,15 @@ public:
         Mem mem{std::forward<Args>(args)...};
 
         // set the kind.
-        if (mem.base_reg_ and mem.index_reg_)     { mem.kind_ =  MK::BaseIndexDisp; }
-        if (not mem.base_reg_ and mem.index_reg_) { mem.kind_ =  MK::IndexDisp; }
-        if (mem.base_reg_ and not mem.index_reg_) { mem.kind_ =  MK::BaseDisp; }
-        mem.kind_ = MK::DispOnly;
+        if (mem.base_reg_ and mem.index_reg_) {
+            mem.kind_ = MK::BaseIndexDisp;
+        } else if (not mem.base_reg_ and mem.index_reg_) {
+            mem.kind_ = MK::IndexDisp;
+        } else if (mem.base_reg_ and not mem.index_reg_) {
+            mem.kind_ = MK::BaseDisp;
+        } else {
+            mem.kind_ = MK::DispOnly;
+        }
 
         // set the displacement bit width.
         if (mem.base_reg_ and mem.base_reg_->id_ == Rip) {
@@ -221,7 +226,7 @@ public:
 
         // set the sib.
         // This is the only case where we don't need a sib byte.
-        if (not (mem.kind_ == MK::BaseDisp and not ::is<Rsp, R12, Rip>(mem.base_reg_->id_))) {
+        if (not (mem.kind_ == MK::BaseDisp and not ::is<Rsp, R12>(mem.base_reg_->id_))) {
             Sib sib{};
             switch (mem.kind_) {
             case MK::BaseDisp: {

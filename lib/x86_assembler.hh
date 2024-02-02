@@ -123,12 +123,6 @@ struct Emitter<OpEn::MR> {
             .mod = rm.is<Mem>() ? rm.as<Mem>().mod_ : Mem::kmod_reg
         };
 
-        if (op_list[0].is<Mem>()) {
-            fmt::print("disp = {}\n", op_list[0].as<Mem>().disp_);
-            fmt::print("disp_bw_ = {}\n", +op_list[0].as<Mem>().disp_bw_);
-            fmt::print("modrm.mod = {}\n", op_list[0].as<Mem>().mod_);
-        }
-
         Rex rex {
             .b = rm.is<Reg>() and rm.as<Reg>().requires_ext(),
             .x = 0,
@@ -139,9 +133,9 @@ struct Emitter<OpEn::MR> {
             rex.b = rm.as<Mem>().base_reg_ and rm.as<Mem>().base_reg_->requires_ext();
             rex.x = rm.as<Mem>().index_reg_ and rm.as<Mem>().index_reg_->requires_ext();
         }
-        rex.required = rex.w 
-            or patterns::rm_requiring_rex::match(rm) 
-            or patterns::rm_requiring_rex::match(r);
+        rex.required = rex.w or rex.b or rex.x or rex.r
+            or patterns::byte_regs_requiring_rex::match(rm)
+            or patterns::byte_regs_requiring_rex::match(r);
 
         InstructionBuf out{};
 
@@ -231,7 +225,7 @@ struct Emitter<OpEn::OI> {
             .b = reg.requires_ext(),
             .w = has_rex_w
         };
-        rex.required = rex.w or patterns::rm_requiring_rex::match(op_list[0]);
+        rex.required = rex.w or rex.b or patterns::byte_regs_requiring_rex::match(op_list[0]);
 
         // Add the register index in the opcode. 
         // It is a bit awkward since we chose to pack all the bytes of an 
@@ -278,7 +272,11 @@ struct Emitter<OpEn::MI> {
             .b = rm.is<Reg>() and rm.as<Reg>().requires_ext(),
             .w = has_rex_w
         };
-        rex.required = rex.w or rex.b or patterns::rm_requiring_rex::match(rm);
+        if (rm.is<Mem>()) {
+            rex.b = rm.as<Mem>().base_reg_ and rm.as<Mem>().base_reg_->requires_ext();
+            rex.x = rm.as<Mem>().index_reg_ and rm.as<Mem>().index_reg_->requires_ext();
+        }
+        rex.required = rex.w or rex.b or rex.x or patterns::byte_regs_requiring_rex::match(rm);
 
         InstructionBuf out{};
 
@@ -301,6 +299,9 @@ struct Emitter<OpEn::MI> {
         if (rm.is<Mem>() and rm.as<Mem>().disp_bw_ != BW::B0) {
             out.append(rm.as<Mem>().disp_bw_, u64(rm.as<Mem>().disp_));
         }
+
+        // Immediate
+        out.append(op_list[1].as<Imm>().bw_, u64(op_list[1].as<Imm>().value_));
 
         return out;
     }
