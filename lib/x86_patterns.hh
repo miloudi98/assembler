@@ -60,7 +60,7 @@ struct r<bit_width> : X86OpClass {
     static constexpr auto match(X86Op::Ref op) -> i1 {
         return op.is<Reg>() 
             and op.as<Reg>().bw_ == bit_width
-            and op.as<Reg>().kind() == RK::Gp;
+            and op.as<Reg>().kind_ == RK::Gp;
     }
 
     // All general purpose registers with a given |bit_width|.
@@ -73,7 +73,7 @@ struct r<bit_width> : X86OpClass {
             if (rk_of_ri(rid) != RK::Gp) { continue; }
             if (not rgs::contains(AsCtx::kbw_of_ri[+rid], bit_width)) { continue; }
 
-            ret.push_back(X86Op{Reg{bit_width, rid}});
+            ret.push_back(X86Op{Reg(bit_width, rid)});
         }
 
         return ret;
@@ -84,7 +84,7 @@ template <RK kind>
 struct r<kind> : X86OpClass {
     static constexpr auto match(X86Op::Ref op) -> i1 {
         return op.is<Reg>()
-            and op.as<Reg>().kind() == kind;
+            and op.as<Reg>().kind_ == kind;
     }
 
     static auto instances() -> X86Op::List {
@@ -94,7 +94,7 @@ struct r<kind> : X86OpClass {
             if (rk_of_ri(RI(rid)) != kind) { continue; }
 
             for (BW w : AsCtx::kbw_of_ri[rid]) {
-                ret.push_back(X86Op{Reg{w, RI(rid)}});
+                ret.push_back(X86Op{Reg(w, RI(rid))});
             }
         }
 
@@ -111,7 +111,7 @@ struct r<bit_width, id> : X86OpClass {
     }
 
     static auto instances() -> X86Op::List {
-        return { X86Op{ Reg{bit_width, id} } };
+        return { X86Op{ Reg(bit_width, id) } };
     }
 };
 
@@ -125,7 +125,7 @@ struct r<id> : X86OpClass {
         X86Op::List ret;
 
         for (BW w : AsCtx::kbw_of_ri[+id]) {
-            ret.push_back(X86Op{Reg{w, id}});
+            ret.push_back(X86Op{Reg(w, id)});
         }
 
         return ret;
@@ -171,6 +171,12 @@ struct m<bit_width> : X86OpClass {
                 Mem::make(bit_width, breg.as<Reg>(), std::nullopt, std::nullopt, random_disp())
             });
         }
+        // |MK::BaseDisp| memory reference without a displacement.
+        // We don't need to test all the base registers because their encodings have already
+        // been tested when generating |MK::BaseDisp| memory references with a displacement.
+        ret.push_back(X86Op{
+            Mem::make(bit_width, base_regs[0].as<Reg>(), std::nullopt, std::nullopt, 0)
+        });
 
         // Generate |MK::BaseIndexDisp| memory references.
         for (const auto& [breg, ireg] : vws::cartesian_product(base_regs, index_regs)) {
@@ -180,6 +186,12 @@ struct m<bit_width> : X86OpClass {
                 });
             }
         }
+        // |MK::BaseIndexDisp| memory reference without a displacement.
+        // We don't need to test all the base and index registers because their encodings have already
+        // been tested when generating |MK::BaseIndexDisp| memory references with a displacement.
+        ret.push_back(X86Op{
+            Mem::make(bit_width, base_regs[0].as<Reg>(), index_regs[0].as<Reg>(), One, 0)
+        });
 
         // Generate |MK::IndexDisp| memory references.
         for (X86Op::Ref ireg : index_regs) {
@@ -189,6 +201,12 @@ struct m<bit_width> : X86OpClass {
                 });
             }
         }
+        // |MK::IndexDisp| memory references without a displacement.
+        // We don't need to test all the index registers because their encodings have already
+        // been tested when generating |MK::IndexDisp| memory references with a displacement.
+        ret.push_back(X86Op{
+            Mem::make(bit_width, std::nullopt, index_regs[0].as<Reg>(), One, 0)
+        });
 
         // Generate |MK::DispOnly| memory references.
         // We will generate 5 of them. The choice of 10 is arbitrary.
@@ -208,6 +226,10 @@ struct m<bit_width> : X86OpClass {
                 Mem::make(bit_width, rip, std::nullopt, std::nullopt, random_disp())
             });
         }
+        // Rip relative adressing without a displacement.
+        ret.push_back(X86Op{
+            Mem::make(bit_width, rip, std::nullopt, std::nullopt, 0)
+        });
 
         return ret;
     }

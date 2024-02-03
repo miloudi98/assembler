@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <memory>
+#include <array>
 #include <map>
 #include <algorithm>
 #include <chrono>
@@ -62,6 +63,9 @@ using HashMap = std::unordered_map<Args...>;
 
 template <typename... Args>
 using Map = std::map<Args...>;
+
+template <typename T, usz Size>
+using Arr = std::array<T, Size>;
 
 using ByteVec = Vec<u8>;
 using StrRef = std::string_view;
@@ -209,6 +213,11 @@ requires requires(const Str& str) {
 auto strmap_get(const StringMap<T>& strmap, const Str& str_key) -> T {
     assert(strmap.contains(str_key), "Key: '{}' not found in the stringmap", str_key);
     return strmap.find(str_key)->second;
+}
+
+template <typename T>
+auto strmap_get(const StringMap<T>& strmap, const char* str_key) -> T {
+    return strmap_get(strmap, StrRef{str_key});
 }
 
 template <typename Callable>

@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 
 #include "lib/core.hh"
+#include "lib/x86_assembler.hh"
 
 namespace {
 
@@ -208,7 +209,7 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
 
 // This function breaks the strict aliasing rule, but it's perfectly 
 // safe to do it since we're only doing read operations.
-auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<ByteVec> {
+auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<InstructionBuf> {
     auto header = reinterpret_cast<const Elf64_Ehdr*>(elf.data());
     auto sht = reinterpret_cast<const Elf64_Shdr*>(elf.data() + header->e_shoff);
     const char* shstrtab = elf.data() + sht[header->e_shstrndx].sh_offset;
@@ -219,10 +220,12 @@ auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<ByteVec> {
         sh_info[Str{name}] = sht[sh_idx];
     }
 
-    const char* strtab = elf.data() + sh_info[".strtab"].sh_offset;
-    StrRef text{elf.data() + sh_info[".text"].sh_offset, sh_info[".text"].sh_size};
+    const char* strtab = elf.data() + utils::strmap_get(sh_info, ".strtab").sh_offset;
+
+    const Elf64_Shdr& text_hdr = utils::strmap_get(sh_info, ".text");
+    StrRef text{elf.data() + text_hdr.sh_offset, text_hdr.sh_size};
     
-    const Elf64_Shdr& symtab_hdr = sh_info[".symtab"];
+    const Elf64_Shdr& symtab_hdr = utils::strmap_get(sh_info, ".symtab");
     Vec<Elf64_Sym> syms(symtab_hdr.sh_size / symtab_hdr.sh_entsize);
     std::memcpy(syms.data(), elf.data() + symtab_hdr.sh_offset, symtab_hdr.sh_size);
 
@@ -235,7 +238,7 @@ auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<ByteVec> {
         }
     );
 
-    Vec<ByteVec> as_instruction_encoding(syms.size());
+    Vec<InstructionBuf> as_instruction_encoding(syms.size());
     for (u32 sym_idx = 0; sym_idx < syms.size(); ++sym_idx) {
         const Elf64_Sym& sym = syms[sym_idx];
         const char* name = strtab + sym.st_name;
@@ -243,26 +246,34 @@ auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<ByteVec> {
         // All the procedures names match the regexp: 'i\d+'.
         assert(*name == 'i');
         u64 instr_idx = std::stoull((name + std::strlen("i")));
-        
-        as_instruction_encoding[instr_idx] = ByteVec {
-            text.begin() + sym.st_value,
-            sym_idx == syms.size() - 1 ? text.end() : text.begin() + syms[sym_idx + 1].st_value
-        };
+
+        InstructionBuf* ibuf = &as_instruction_encoding[instr_idx];
+
+        ibuf->sz_ = sym_idx == syms.size() - 1
+            ? u8(text.size() - sym.st_value)
+            : u8(syms[sym_idx + 1].st_value - sym.st_value);
+
+        std::memcpy(ibuf->buf_, text.data() + sym.st_value, ibuf->sz_);
     }
 
     return as_instruction_encoding;
 }
 
-auto fiska::x86::elf::str_of_instruction_with_gas_syntax(X86Instruction::Ref instruction) -> Str {
-    switch (instruction.kind_) {
-    case X86IK::Mov: {
-        return fmt::format("mov {}, {}",
-            str_of_operand_with_gas_syntax(instruction.op_list[0]),
-            str_of_operand_with_gas_syntax(instruction.op_list[1])
-        );
-    }
+auto fiska::x86::elf::str_of_instruction_kind_with_gas_syntax(X86IK kind) -> StrRef {
+    switch (kind) {
+    case X86IK::Mov: return "mov";
+    case X86IK::Add: return "add";
+    case X86IK::Adc: return "adc";
     } // switch
     unreachable();
+}
+
+auto fiska::x86::elf::str_of_instruction_with_gas_syntax(X86Instruction::Ref instruction) -> Str {
+    return fmt::format("{} {}, {}",
+        str_of_instruction_kind_with_gas_syntax(instruction.kind_),
+        str_of_operand_with_gas_syntax(instruction.op_list_[0]),
+        str_of_operand_with_gas_syntax(instruction.op_list_[1])
+    );
 }
 
 auto fiska::x86::elf::write_instructions_with_gas_syntax(const fs::path& out_path, X86Instruction::ListRef instructions) -> void {
@@ -292,7 +303,7 @@ auto fiska::x86::elf::write_instructions_with_gas_syntax(const fs::path& out_pat
 }
 
 
-auto fiska::x86::elf::assemble_instructions_with_gas(X86Instruction::ListRef instructions) -> Vec<ByteVec> {
+auto fiska::x86::elf::assemble_instructions_with_gas(X86Instruction::ListRef instructions) -> Vec<InstructionBuf> {
     //=============================================================================
     // Write the instructions to a temporary location and assemble it.
     //=============================================================================
@@ -301,7 +312,7 @@ auto fiska::x86::elf::assemble_instructions_with_gas(X86Instruction::ListRef ins
 
     write_instructions_with_gas_syntax(tmp_path, instructions);
     defer {
-        //fs::remove_all(tmp_path);
+        fs::remove_all(tmp_path);
         fs::remove_all(out_path);
     };
 
@@ -386,3 +397,4 @@ auto fiska::x86::elf::str_of_operand_with_gas_syntax(X86Op::Ref op) -> Str {
 
     unreachable();
 }
+

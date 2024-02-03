@@ -22,3 +22,8 @@
 
 # GCC build directories
 gcc*
+
+# Test data
+*.asm
+*.elf
+*.cpp.x86.instructions

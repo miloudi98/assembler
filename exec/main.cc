@@ -1,72 +1,40 @@
-//#include "lib/core.hh"
-//#include "lib/x86_core.hh"
-//#include "lib/front_end.hh"
-//#include "lib/elf.hh"
-
 #include "lib/core.hh"
 #include "lib/x86_patterns.hh"
 #include "lib/x86_utils.hh"
 #include "lib/x86_assembler.hh"
-#include "lib/instructions/mov.hh"
-#include "lib/instructions/add.hh"
 #include "lib/testing/elf.hh"
+#include "lib/instructions/emitter.hh"
 
 #include <cstring>
 
 using namespace fiska::x86;
 
+constexpr StrRef test_out_path = "/home/jawad/fiska/dev/x86_assembler/lib/instructions/test_x86_instructions";
+
 auto main(i32 argc, char* argv[]) -> i32 {
     AsCtx::init();
-    using enum BW;
 
-    Vec<X86Op::List> insts = instructions::mov::instances();
-    Vec<X86Op::List> insts2 = instructions::add::instances();
+    //elf::build_testing_asm_and_elf_file<
+    //    instructions::mov,
+    //    instructions::add,
+    //    instructions::adc
+    //>(fs::path(test_out_path));
 
-    X86Instruction::List x86_instructions;
-    x86_instructions.reserve(insts.size());
+    auto x86_instructions_raw = utils::load_file(fs::path(fmt::format("{}.cpp.x86.instructions", test_out_path)));
+    auto elf_file = utils::load_file(fs::path(fmt::format("{}.elf", test_out_path)));
 
-    for (X86Op::ListRef op_list : insts) {
-        x86_instructions.push_back(X86Instruction{X86IK::Mov, op_list});
+    u64 x86_instructions_sz = x86_instructions_raw.size() / sizeof(X86Instruction);
+    auto x86_instructions = reinterpret_cast<const X86Instruction*>(x86_instructions_raw.data());
+    auto as_encodings = elf::read_symbols_from_elf({elf_file.data(), elf_file.size()});
+    
+    auto t1 = chr::high_resolution_clock::now();
+    assert(x86_instructions_sz == as_encodings.size());
+    for (u64 instr_idx{}; const InstructionBuf& as_encoding : as_encodings) {
+        InstructionBuf fiska_encoding = instructions::emit(x86_instructions[instr_idx++]);
+        assert(fiska_encoding == as_encoding);
     }
+    auto t2 = chr::high_resolution_clock::now();
 
-    auto encodings = elf::assemble_instructions_with_gas(x86_instructions);
-
-    for (u64 instr_idx{}; const auto& encoding : encodings) {
-        bool wrong_assembly = false;
-
-        InstructionBuf fiska_encoding = instructions::mov::emit(x86_instructions[instr_idx++].op_list);
-
-        wrong_assembly |= fiska_encoding.sz_ != encoding.size();
-
-        if (fiska_encoding.sz_ == encoding.size()) {
-            wrong_assembly |= std::memcmp(fiska_encoding.buf_, encoding.data(), encoding.size()) != 0;
-        }
-
-        
-
-        if (wrong_assembly) {
-
-            fmt::print("Wrong assembly generated for instr_idx = {}\n", instr_idx);
-
-            fmt::print("[");
-            for (auto [idx, byte] : encoding | vws::enumerate) {
-                fmt::print("{:#04x}", byte);
-                fmt::print("{}", u32(idx) == encoding.size() - 1 ? "" : ", ");
-            }
-            fmt::print("]");
-
-            fmt::print("; fiska encoding = ");
-            fmt::print("[");
-            for (u8 idx = 0; idx < fiska_encoding.sz_; ++idx) {
-                fmt::print("{:#04x}", fiska_encoding.buf_[idx]);
-                fmt::print("{}", u32(idx) == fiska_encoding.sz_ - 1 ? "" : ", ");
-            }
-            fmt::print("]\n");
-            std::exit(1);
-
-        }
-
-    }
-
-    return 0;
+    fmt::print("took {}ms\n", chr::duration_cast<chr::milliseconds>(t2 - t1).count());
+    fmt::print("{} tests passed successfuly!\n", x86_instructions_sz);
 }

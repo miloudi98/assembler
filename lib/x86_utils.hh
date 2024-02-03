@@ -9,7 +9,9 @@ namespace fiska::x86 {
 
 // X86 Instruction Kind.
 enum struct X86IK {
-    Mov
+    Mov,
+    Add,
+    Adc,
 };
 
 // Bit width.
@@ -67,9 +69,6 @@ enum struct RK {
     Ctrl,
     Dbg
 };
-
-// Returns the register kind of a register id.
-auto rk_of_ri(RI ri) -> RK;
 
 // Memory reference kind.
 enum struct MK {
@@ -146,13 +145,174 @@ struct Imm {
     i64 value_{};
 };
 
+// Returns the register kind of a register id.
+// TODO(miloudi): Remove the definition from the header file please.
+constexpr auto rk_of_ri(RI ri) -> RK {
+    using enum RI;
+
+    switch (ri) {
+    case Rax:
+    case Rcx:
+    case Rdx:
+    case Rbx:
+    case Rsp:
+    case Rbp:
+    case Rsi:
+    case Rdi:
+    case R8:
+    case R9:
+    case R10:
+    case R11:
+    case R12:
+    case R13:
+    case R14:
+    case R15:
+    case Rah:
+    case Rch:
+    case Rdh:
+    case Rbh:
+        return RK::Gp;
+
+    case Rip:
+        return RK::Ip;
+
+    case Es:
+    case Cs:
+    case Ss:
+    case Ds:
+    case Fs:
+    case Gs:
+        return RK::Seg;
+
+    case Cr0:
+    case Cr1:
+    case Cr2:
+    case Cr3:
+    case Cr4:
+    case Cr5:
+    case Cr6:
+    case Cr7:
+    case Cr8:
+    case Cr9:
+    case Cr10:
+    case Cr11:
+    case Cr12:
+    case Cr13:
+    case Cr14:
+    case Cr15:
+        return RK::Ctrl;
+
+    case Dbg0:
+    case Dbg1:
+    case Dbg2:
+    case Dbg3:
+    case Dbg4:
+    case Dbg5:
+    case Dbg6:
+    case Dbg7:
+    case Dbg8:
+    case Dbg9:
+    case Dbg10:
+    case Dbg11:
+    case Dbg12:
+    case Dbg13:
+    case Dbg14:
+    case Dbg15:
+        return RK::Dbg;
+    } // switch
+    unreachable();
+}
+
+// Returns the index of a register id.
+// TODO(miloudi): Remove the definition from the header file please.
+constexpr auto idx_of_ri(RI ri) -> u8 {
+    using enum RI;
+
+    switch (ri) {
+    case Rax: return 0;
+    case Rcx: return 1;
+    case Rdx: return 2;
+    case Rbx: return 3;
+    case Rsp: return 4;
+    case Rbp: return 5;
+    case Rsi: return 6;
+    case Rdi: return 7;
+    case R8:  return 0;
+    case R9:  return 1;
+    case R10: return 2;
+    case R11: return 3;
+    case R12: return 4;
+    case R13: return 5;
+    case R14: return 6;
+    case R15: return 7;
+    case Rah: return 4;
+    case Rch: return 5;
+    case Rdh: return 6;
+    case Rbh: return 7;
+
+    case Rip: return 5;
+
+    case Es: return 0;
+    case Cs: return 1;
+    case Ss: return 2;
+    case Ds: return 3;
+    case Fs: return 4;
+    case Gs: return 5;
+
+    case Cr0:  return 0;
+    case Cr1:  return 1;
+    case Cr2:  return 2;
+    case Cr3:  return 3;
+    case Cr4:  return 4;
+    case Cr5:  return 5;
+    case Cr6:  return 6;
+    case Cr7:  return 7;
+    case Cr8:  return 0;
+    case Cr9:  return 1;
+    case Cr10: return 2;
+    case Cr11: return 3;
+    case Cr12: return 4;
+    case Cr13: return 5;
+    case Cr14: return 6;
+    case Cr15: return 7;
+
+    case Dbg0:  return 0;
+    case Dbg1:  return 1;
+    case Dbg2:  return 2;
+    case Dbg3:  return 3;
+    case Dbg4:  return 4;
+    case Dbg5:  return 5;
+    case Dbg6:  return 6;
+    case Dbg7:  return 7;
+    case Dbg8:  return 0;
+    case Dbg9:  return 1;
+    case Dbg10: return 2;
+    case Dbg11: return 3;
+    case Dbg12: return 4;
+    case Dbg13: return 5;
+    case Dbg14: return 6;
+    case Dbg15: return 7;
+    } // switch
+    unreachable();
+}
+// TODO(miloudi): Initialize all of these registers at compile time and only
+// hold pointers to them throughout program execution.
 struct Reg {
     BW bw_{};
     RI id_{};
+    RK kind_{};
+    u8 idx_{};
+    i1 requires_ext_{};
 
-    [[nodiscard]] auto kind() const -> RK;
-    [[nodiscard]] auto index() const -> u8;
-    [[nodiscard]] auto requires_ext() const -> i1;
+    constexpr Reg(BW bw, RI id) : bw_(bw), id_(id) {
+        using enum RI;
+
+        idx_ = idx_of_ri(id_);
+        kind_ = rk_of_ri(id_);
+        requires_ext_ = (+id_ >= +R8 and +id_ <= +R15)
+            or (+id_ >= +Cr8 and +id_ <= +Cr15)
+            or (+id_ >= +Dbg8 and +id_ <= +Dbg15);
+    }
 };
 
 struct Mem {
@@ -231,19 +391,19 @@ public:
             Sib sib{};
             switch (mem.kind_) {
             case MK::BaseDisp: {
-                sib.base = mem.base_reg_->index();
+                sib.base = mem.base_reg_->idx_;
                 sib.index = ksib_no_index_reg;
                 break;
             }
             case MK::BaseIndexDisp: {
-                sib.base = mem.base_reg_->index();
-                sib.index = mem.index_reg_->index();
+                sib.base = mem.base_reg_->idx_;
+                sib.index = mem.index_reg_->idx_;
                 sib.scale = +mem.scale_.value();
                 break;
             }
             case MK::IndexDisp: {
                 sib.base = ksib_no_base_reg;
-                sib.index = mem.index_reg_->index();
+                sib.index = mem.index_reg_->idx_;
                 sib.scale = +mem.scale_.value();
                 break;
             }
@@ -265,7 +425,7 @@ public:
 struct X86Op {
     using Ref = const X86Op&;
     using List = Vec<X86Op>;
-    using ListRef = const Vec<X86Op>&;
+    using ListRef = const List&;
     using Inner = std::variant<
         std::monostate,
         Reg,
@@ -285,21 +445,76 @@ struct X86Op {
     template <OneOf<Reg, Mem, Moffs, Imm> T>
     [[nodiscard]] auto as() const -> const T& { return std::get<T>(inner_); }
 
-    [[nodiscard]] auto modrm_encoding() const -> u8;
+    [[nodiscard]] auto modrm_encoding() const -> u8 {
+        assert((is<Reg, Mem>()));
+
+        if (is<Reg>()) {
+            return as<Reg>().idx_;
+        }
+
+        if (not as<Mem>().sib_) {
+            return as<Mem>().base_reg_->idx_;
+        }
+
+        return Mem::ksib_marker;
+    }
+};
+
+struct X86InstructionOperands {
+private:
+    Arr<X86Op, 3> buf_{};
+    u8 sz_{};
+
+public:
+    explicit X86InstructionOperands(X86Op::ListRef op_list) {
+        assert(op_list.size() <= 3);
+
+        sz_ = u8(op_list.size());
+        std::copy(op_list.begin(), op_list.end(), buf_.begin());
+    }
+
+    X86InstructionOperands() {}
+
+    auto size() const -> u64 { return sz_; }
+
+    template <std::unsigned_integral Index>
+    auto operator[](Index idx) const -> X86Op::Ref {
+        check_bounds(idx);
+        return buf_[u8(idx)];
+    }
+
+    template <std::signed_integral Index>
+    auto operator[](Index idx) const -> X86Op::Ref {
+        check_bounds(idx);
+        return buf_[u8(idx)];
+    }
+
+    template <std::unsigned_integral Index>
+    auto check_bounds(Index idx) const -> void {
+        assert(idx < sz_);
+    }
+
+    template <std::signed_integral Index>
+    auto check_bounds(Index idx) const -> void {
+        assert(idx >= 0 and idx < sz_);
+    }
+
 };
 
 struct X86Instruction {
     using Ref = const X86Instruction&;
     using List = Vec<X86Instruction>;
     using ListRef = const Vec<X86Instruction>&;
+    using OpList = X86InstructionOperands;
+    using OpListRef = const OpList&;
 
     X86IK kind_{};
-    X86Op::List op_list{};
+    OpList op_list_{};
 };
 
 // Assembler context.
 struct AsCtx {
-    // Must be kept in sync.
+    // Must be kept in sync with the register ids.
     static constexpr u8 knum_regs = +RI::Dbg15 + 1;
     static inline Vec<Vec<BW>> kbw_of_ri;
     static inline std::mt19937 kgen{std::random_device{}()};

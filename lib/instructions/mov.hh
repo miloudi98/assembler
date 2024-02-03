@@ -9,6 +9,8 @@ namespace fiska::x86::instructions {
 using namespace patterns;
 
 using mov = InstrExprList<
+    X86IK::Mov,
+
     // 0x88 /r MOV r/m8, r8 -- MR
     InstrExpr<
         OpCode<0x88>,
@@ -137,7 +139,7 @@ using mov = InstrExprList<
     InstrExpr<
         OpCode<0xc6>,
         Pat<Rex_W::No, B16OpSz::No, rm8, imm8>,
-        Emitter<OpEn::MI>
+        Emitter<OpEn::MI, SlashDigit::Zero>
     >,
     // 0xC7 /0 iw MOV r/m16, imm16 -- MI
     // 0xC7 /0 id MOV r/m32, imm32 -- MI
@@ -149,7 +151,7 @@ using mov = InstrExprList<
             Pat<Rex_W::No, B16OpSz::No, rm32, imm32>,
             Pat<Rex_W::Yes, B16OpSz::No, rm64, imm32>
         >,
-        Emitter<OpEn::MI>
+        Emitter<OpEn::MI, SlashDigit::Zero>
     >,
     // 0x0F 0x20 /r MOV r64, CR0-CR7 -- MR
     // 0x0F 0x20 /0 MOV r64, CR8     -- MR

@@ -29,31 +29,31 @@ auto print_stack_trace() -> void {
 
 template <typename T>
 requires OneOf<T, u8, u16, u32>
-auto fits_in_unsigned(i64 num) -> bool {
+auto fits_in_unsigned(i64 num) -> i1 {
     return num >= 0 and num <= std::numeric_limits<T>::max();
 }
 
 template <typename T>
 requires OneOf<T, i8, i16, i32>
-auto fits_in_signed(i64 num) -> bool {
+auto fits_in_signed(i64 num) -> i1 {
     return num >= std::numeric_limits<T>::min() 
         and num <= std::numeric_limits<T>::max();
 }
 
 }  // namespace
 
-auto utils::fits_in_u8(i64 num) -> bool { return fits_in_unsigned<u8>(num); }
-auto utils::fits_in_u16(i64 num) -> bool { return fits_in_unsigned<u16>(num); }
-auto utils::fits_in_u24(i64 num) -> bool { return num >= 0 and num <= (1 << 24) - 1; }
-auto utils::fits_in_u32(i64 num) -> bool { return fits_in_unsigned<u32>(num); }
+auto utils::fits_in_u8(i64 num) -> i1 { return fits_in_unsigned<u8>(num); }
+auto utils::fits_in_u16(i64 num) -> i1 { return fits_in_unsigned<u16>(num); }
+auto utils::fits_in_u24(i64 num) -> i1 { return num >= 0 and num <= (1 << 24) - 1; }
+auto utils::fits_in_u32(i64 num) -> i1 { return fits_in_unsigned<u32>(num); }
 
-auto utils::fits_in_i8(i64 num) -> bool { return fits_in_signed<i8>(num); }
-auto utils::fits_in_i16(i64 num) -> bool { return fits_in_signed<i16>(num); }
-auto utils::fits_in_i32(i64 num) -> bool { return fits_in_signed<i32>(num); }
+auto utils::fits_in_i8(i64 num) -> i1 { return fits_in_signed<i8>(num); }
+auto utils::fits_in_i16(i64 num) -> i1 { return fits_in_signed<i16>(num); }
+auto utils::fits_in_i32(i64 num) -> i1 { return fits_in_signed<i32>(num); }
 
-auto utils::fits_in_b8(i64 num) -> bool { return fits_in_i8(num) or fits_in_u8(num); }
-auto utils::fits_in_b16(i64 num) -> bool { return fits_in_i16(num) or fits_in_u16(num); }
-auto utils::fits_in_b32(i64 num) -> bool { return fits_in_i32(num) or fits_in_u32(num); }
+auto utils::fits_in_b8(i64 num) -> i1 { return fits_in_i8(num) or fits_in_u8(num); }
+auto utils::fits_in_b16(i64 num) -> i1 { return fits_in_i16(num) or fits_in_u16(num); }
+auto utils::fits_in_b32(i64 num) -> i1 { return fits_in_i32(num) or fits_in_u32(num); }
 
 auto utils::number_width(u64 num, u32 base) -> u32 {
     return num == 0 ? 1 : u32(std::log(num) / std::log(base) + 1);
