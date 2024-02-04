@@ -369,11 +369,11 @@ struct X86Instruction {
 };
 
 // Assembler context.
-// TODO(miloudi): This is really ugly try to remove this from here.
 struct AsCtx {
     // Must be kept in sync with the register ids.
     static constexpr u8 knum_regs = +RI::Dbg15 + 1;
     static inline Vec<Vec<BW>> kbw_of_ri;
+    // TODO(miloudi): Template this stuff please.
     static inline std::mt19937 kgen{std::random_device{}()};
     static inline std::uniform_int_distribution<i8>  k8bit_rand_int{std::numeric_limits<i8>::min(), std::numeric_limits<i8>::max()}; 
     static inline std::uniform_int_distribution<i16> k16bit_rand_int{std::numeric_limits<i16>::min(), std::numeric_limits<i16>::max()}; 

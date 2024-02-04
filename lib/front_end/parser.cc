@@ -64,54 +64,6 @@ const utils::StringMap<BW> bws = {
     {"b8", BW::B8}, {"b16", BW::B16}, {"b32", BW::B32}, {"b64", BW::B64},
 };
 
-// Credit to llvm: https://llvm.org/doxygen/StringRef_8cpp_source.html
-// Returns |std::nullopt| if an overflow occurs.
-[[nodiscard]] auto i64_of_str(StrRef str, i1 is_negative = false) -> Opt<i64> {
-    assert(not (str.starts_with('+') or str.starts_with('-')));
-
-    u8 radix = str.starts_with("0x") ? 16 : 10;
-    if (str.starts_with("0x")) { str.remove_prefix(2); }
-
-    StrRef curr_str = str;
-    u64 ret = 0;
-
-    while (not curr_str.empty()) {
-        u8 ord = 0;
-
-        if (curr_str[0] >= '0' and curr_str[0] <= '9') {
-            ord = u8(curr_str[0] - '0');
-        } else if (curr_str[0] >= 'a' and curr_str[0] <= 'z') {
-            ord = u8(curr_str[0] - 'a' + 10);
-        } else if (curr_str[0] >= 'A' and curr_str[0] <= 'Z') {
-            ord = u8(curr_str[0] - 'A' + 10);
-        } else {
-            return std::nullopt;
-        }
-
-        if (ord >= radix) {
-            return std::nullopt;
-        }
-
-        u64 old_ret = ret;
-        ret = ret * radix + ord;
-
-        // overflow detected.
-        if ((ret / radix) < old_ret) {
-            return std::nullopt;
-        }
-
-        curr_str.remove_prefix(1);
-    }
-
-    // check if negative number is not too large to 
-    // fit in an i64.
-    if (is_negative and static_cast<i64>(-ret) > 0) {
-        return std::nullopt;
-    }
-
-    return static_cast<i64>(is_negative ? -ret : ret);
-}
-
 } // namespace
 
 auto fiska::fe::str_of_tk(TK tk) -> StrRef {
@@ -139,6 +91,7 @@ auto fiska::fe::str_of_tk(TK tk) -> StrRef {
     } // switch
     unreachable();
 }
+
 auto fiska::fe::Ctx::load_file(const fs::path& path) -> File* {
     auto file = std::make_unique<File>(
         u16(files_.size()),
@@ -369,6 +322,62 @@ auto fiska::fe::Parser::parse_proc_expr() -> ProcExpr* {
     return proc;
 }
 
+// Credit to llvm: https://llvm.org/doxygen/StringRef_8cpp_source.html
+auto fiska::fe::Parser::parse_num() -> i64 {
+    i1 has_sign = consume(TK::Plus, TK::Minus);
+    expect(TK::Num);
+
+    StrRef num_lxm = peek_tok(-1).str_;
+
+    u8 radix{};
+    if (num_lxm.starts_with("0x")) { radix = 16; num_lxm.remove_prefix(2); }
+    else if (num_lxm.starts_with("0b")) { radix = 2; num_lxm.remove_prefix(2); }
+    else { radix = 10; }
+
+    StrRef curr = num_lxm;
+    u64 ret{};
+
+    while (not curr.empty()) {
+        u8 ord{};
+        if (curr[0] >= '0' and curr[0] <= '9') {
+            ord = u8(curr[0] - '0');
+        } else if (curr[0] >= 'a' and curr[0] <= 'z') {
+            ord = u8(curr[0] - 'a');
+        } else if (curr[0] >= 'A' and curr[0] <= 'Z') {
+            ord = u8(curr[0] - 'A');
+        } else {
+            break;
+        }
+
+        if (ord >= radix) { break; }
+
+        u64 old_ret = ret;
+        ret = ret * radix + ord;
+        
+        // Overflow.
+        if ((ret / radix) != old_ret) { break; }
+
+        curr.remove_prefix(1);
+    }
+
+    i1 is_negative = has_sign and peek_tok(-2).kind_ == TK::Minus;
+
+    assert( (not (is_negative and static_cast<i64>(-ret) > 0) ) and curr.empty(),
+            "Invalid number encountered: '{}{}'.",
+                has_sign ? str_of_tk(peek_tok(-2).kind_) : "",
+                num_lxm
+    );
+
+    return static_cast<i64>(is_negative ? -ret : ret);
+}
+
+auto fiska::fe::Parser::parse_mem_index_scale() -> x86::MemIndexScale {
+    i64 scale = parse_num();
+    assert((is<1LL, 2LL, 4LL, 8LL>(scale)), "Invalid scale encountered: '{}'.", scale);
+
+    return x86::MemIndexScale(scale);
+}
+
 auto fiska::fe::Parser::parse_x86_instruction() -> x86::X86Instruction {
     expect_all(TK::Mnemonic, TK::LParen);
 
@@ -407,16 +416,10 @@ auto fiska::fe::Parser::parse_x86_op() -> x86::X86Op {
         or match(TK::BitWidth, TK::Minus, TK::Num))
     {
         expect(TK::BitWidth);
-        i1 has_sign = consume(TK::Plus, TK::Minus);
-        expect(TK::Num);
+        BW bw = utils::strmap_get(bws, peek_tok(-1).str_);
+        i64 imm = parse_num();
 
-        return x86::X86Op {
-            x86::Imm {
-                utils::strmap_get(bws, peek_tok(-2 - has_sign).str_),
-                // TODO(miloudi): Handle invalid numbers.
-                i64_of_str(peek_tok(-1).str_, /*is_negative=*/has_sign and peek_tok(-2).kind_ == TK::Minus).value()
-            }
-        };
+        return x86::X86Op { x86::Imm { bw, imm } };
     }
     // Memory reference.
     if (match(TK::At, TK::BitWidth, TK::LBracket)) {
@@ -429,29 +432,22 @@ auto fiska::fe::Parser::parse_x86_op() -> x86::X86Op {
         i64 disp{};
 
         if (consume(TK::Reg)) {
-            breg = Reg(
-                x86::BW::B64,
-                utils::strmap_get(reg_ids, peek_tok(-1).str_)
-            );
+            breg.emplace(x86::BW::B64, utils::strmap_get(reg_ids, peek_tok(-1).str_));
         }
         expect(TK::RBracket);
 
         // scale + index register.
         if (consume(TK::LBracket)) {
-            expect_all(TK::Num, TK::RBracket, TK::LBracket, TK::Reg, TK::RBracket);
+            scale = parse_mem_index_scale();
 
-            scale = MemIndexScale(i64_of_str(peek_tok(-5).str_).value());
-            ireg = Reg(
-                x86::BW::B64,
-                utils::strmap_get(reg_ids, peek_tok(-2).str_)
-            );
+            expect_all(TK::RBracket, TK::LBracket, TK::Reg, TK::RBracket);
+
+            ireg.emplace(x86::BW::B64, utils::strmap_get(reg_ids, peek_tok(-2).str_));
         }
 
         // displacement.
-        if (consume(TK::Plus, TK::Minus)) {
-            expect(TK::Num);
-
-            disp = i64_of_str(peek_tok(-1).str_, /*is_negative=*/peek_tok(-2).kind_ == TK::Minus).value();
+        if (at(TK::Plus, TK::Minus)) {
+            disp = parse_num();
         }
 
         return x86::X86Op {
@@ -460,17 +456,15 @@ auto fiska::fe::Parser::parse_x86_op() -> x86::X86Op {
     }
     // Absolute Memory offset.
     if (match(TK::At, TK::BitWidth, TK::Num)) {
-        expect_all(TK::At, TK::BitWidth, TK::Num);
+        expect_all(TK::At, TK::BitWidth);
+        BW bw = utils::strmap_get(bws, peek_tok(-1).str_);
+        i64 addr = parse_num();
 
-        return x86::X86Op {
-            x86::Moffs {
-                utils::strmap_get(bws, peek_tok(-2).str_),
-                i64_of_str(peek_tok(-1).str_).value()
-            }
-        };
+        return x86::X86Op { x86::Moffs { bw, addr } };
     }
-
-    todo("Handle wrong syntax");
+ 
+    // TODO(miloudi): Implement proper error handling please.
+    unreachable("Invalid x86 operand syntax encountered.");
 }
 
 auto fiska::fe::Parser::tok() -> const Tok& {

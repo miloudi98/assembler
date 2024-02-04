@@ -44,7 +44,7 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
     fiska::fe::Parser p(ctx.get(), f->fid_);
 
-    std::ignore = p.parse_proc_expr();
+    auto proc = p.parse_proc_expr();
 
-    fmt::print("no crash\n");
+    fmt::print("no crash, proc_name = {}\n", proc->name_);
 }

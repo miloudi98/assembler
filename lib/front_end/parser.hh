@@ -164,13 +164,10 @@ struct Parser {
     explicit Parser(Ctx* ctx, u16 fid) :
         ctx_(ctx), fid_(fid)
     {
+        // Lex the file with id |fid|.
         Lexer lxr{ctx, fid};
         while (lxr.tok().kind_ != TK::Eof) { lxr.next_tok(); }
-
-        for (auto it = ctx_->tok_streams_[fid_].begin(); it != ctx_->tok_streams_[fid_].end(); ++it) {
-            fmt::print("<{}>\n", str_of_tk((*it).kind_));
-        }
-
+        // Intialize the iterator.
         tok_stream_it_ = ctx_->tok_streams_[fid_].begin();
     } 
 
@@ -180,7 +177,8 @@ struct Parser {
     auto parse_proc_expr() -> ProcExpr*;
     auto parse_x86_instruction() -> x86::X86Instruction;
     auto parse_x86_op() -> x86::X86Op;
-
+    auto parse_num() -> i64;
+    auto parse_mem_index_scale() -> x86::MemIndexScale;
 
     auto at(std::same_as<TK> auto... tk) -> i1 {
         return ((tok().kind_ == tk) or ...);
@@ -192,6 +190,7 @@ struct Parser {
         return true;
     }
 
+    // TODO(miloudi): Have proper error handling.
     auto expect_any(std::same_as<TK> auto... tk) -> void {
         assert(consume(tk...));
     }
