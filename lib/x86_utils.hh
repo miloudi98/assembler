@@ -97,6 +97,7 @@ enum struct OpEn {
     I
 };
 
+// TODO(miloudi): This is UB btw and all other type punning examples you have below.
 union Sib {
     struct {
         u8 base: 3{};
@@ -128,7 +129,8 @@ union Rex {
         // Reserved.
         u8 mod: 4 {0b0100}; 
         // Must emit the prefix.
-        i1 required: 1{};
+        // TODO(miloudi): THIS IS UB.
+        u8 required: 1{};
     };
     u16 raw;
 };

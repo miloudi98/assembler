@@ -7,3 +7,16 @@ fn function {
     mov(b64 rax, b16 cs);
     mov(b8 rax, b8 -15);
 }
+
+fn function2 {
+    mov(b64 rax, b64 rbx);
+    mov(b64 rax, @b64 [] - 92233);
+    mov(b32 rax, @b32 [rax][1][rbx] + 0x1122334455667788);
+    mov(b32 rax, @b32 [] + 0x11223344);
+    mov(b64 rax, b16 cs);
+    mov(b8 rax, b8 -15);
+}
+
+fn _start {
+    mov(b64 rax, b64 42);
+}

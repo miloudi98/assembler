@@ -5,12 +5,14 @@
 #include "lib/testing/elf.hh"
 #include "lib/instructions/emitter.hh"
 #include "lib/front_end/parser.hh"
+#include "lib/codegen/elf.hh"
 
 #include <cstring>
 
 using namespace fiska::x86;
 
 constexpr StrRef test_out_path = "/home/jawad/fiska/dev/x86_assembler/lib/instructions/test_x86_instructions";
+constexpr StrRef elf_out_path = "/home/jawad/fiska/dev/x86_assembler/a.out";
 
 auto main(i32 argc, char* argv[]) -> i32 {
     AsCtx::init();
@@ -45,6 +47,10 @@ auto main(i32 argc, char* argv[]) -> i32 {
     fiska::fe::Parser p(ctx.get(), f->fid_);
 
     auto proc = p.parse_proc_expr();
+    auto proc2 = p.parse_proc_expr();
+    auto proc3 = p.parse_proc_expr();
+
+    codegen::codegen({proc, proc2, proc3}, fs::path(elf_out_path));
 
     fmt::print("no crash, proc_name = {}\n", proc->name_);
 }

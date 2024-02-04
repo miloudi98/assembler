@@ -7,18 +7,7 @@
 
 namespace fiska::x86::instructions {
 
-using namespace patterns;
-
-auto emit(X86Instruction::Ref inst) -> InstructionBuf {
-    using enum X86IK;
-
-    switch (inst.kind_) {
-    case Mov: return mov::emit(inst.op_list_);
-    case Add: return add::emit(inst.op_list_);
-    case Adc: return adc::emit(inst.op_list_);
-    } // switch
-    unreachable();
-}
+auto emit(X86Instruction::Ref inst) -> InstructionBuf;
 
 } // namespace fiska::x86::instructions
 

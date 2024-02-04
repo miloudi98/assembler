@@ -81,6 +81,9 @@ enum struct EK {
 };
 
 struct Expr {
+    using List = Vec<Expr*>;
+    using ListRef = const List&;
+
     EK kind_{};
 
     Expr(EK kind) : kind_(kind) {}
