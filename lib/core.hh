@@ -145,22 +145,6 @@ auto is(const decltype(T)& arg) -> i1 {
 
 namespace utils {
 
-struct File {
-    fs::path path_;
-    Vec<char> code_;
-
-    File(const File&) = delete;
-    File(File&&) = delete;
-    File& operator=(const File&) = delete;
-    File& operator=(File&&) = delete;
-
-    File(fs::path path, Vec<char> code) 
-        : path_(path), code_(std::move(code)) {}
-
-    auto data() const -> const char* { return code_.data(); }
-    auto size() const -> u64 { return code_.size(); }
-};
-
 // Assertion kinds.
 enum struct AK {
     Assertion,

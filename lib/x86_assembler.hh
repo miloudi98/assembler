@@ -12,6 +12,7 @@ struct InstructionBuf {
     u8 buf_[/*max instruction length=*/15]{};
     u8 sz_{};
 
+    // TODO(miloudi): This doens't belong here.
     static constexpr u8 kb16_opsz_prefix = 0x66;
 
     void append(u8 byte) {
