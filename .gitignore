@@ -29,7 +29,7 @@ gcc*
 *.cpp.x86.instructions
 
 # Smoke tests directory.
-**/tests/
+tests/
 
 # Testing executables.
-**/exec/
+exec/

@@ -32,19 +32,8 @@ struct StringInterner {
     std::unordered_set<StrRef> unique_strings_;
     Vec<char*> storage_;
 
-    auto save(StrRef str) -> StrRef {
-        auto [slot, is_inserted] = unique_strings_.insert(str);
-        if (is_inserted) {
-            char* alloc = new char[str.size() + 1];
-            alloc[str.size()] = '\0';
-            storage_.push_back(alloc);
-        }
-        return *slot;
-    }
-
-    ~StringInterner() {
-        rgs::for_each(storage_, [](char* alloc) { delete[] alloc; });
-    }
+    auto save(StrRef str) -> StrRef; 
+    ~StringInterner(); 
 };
 
 } // namespace fiska::fe
