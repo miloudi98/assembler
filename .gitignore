@@ -27,3 +27,9 @@ gcc*
 *.asm
 *.elf
 *.cpp.x86.instructions
+
+# Smoke tests directory.
+**/tests/
+
+# Testing executables.
+**/exec/
