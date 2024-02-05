@@ -38,20 +38,31 @@ enum struct TK {
     Minus,
     // '/'
     Slash,
+    // '*'
+    Star,
+    // '='
+    Eq,
 
     // Multi-character tokens.
     // Identifier
     Ident,
+    // String literal.
+    StrLit,
     // Number
     Num,
     // Bit width. (e.g. 'b8', 'b16', 'b32')
     BitWidth,
+    // keyword 'let'
+    Let,
     // keyword 'fn'
     Fn,
     // x86 Registers.
     Reg,
     // x86 mnemonic. (e.g 'mov', 'addcx')
     Mnemonic,
+
+    // Unknown token.
+    Unknown,
 
     // End of file.
     Eof,
@@ -78,6 +89,7 @@ struct TokStream {
 // Expression kind.
 enum struct EK {
     ProcExpr,
+    VarExpr
 };
 
 struct Expr {
@@ -100,6 +112,14 @@ struct ProcExpr : Expr {
     x86::X86Instruction::List instructions_{};
 
     ProcExpr() : Expr(EK::ProcExpr) {}
+};
+
+struct VarExpr : Expr {
+    StrRef label_{};
+    x86::BW elem_sz_{};
+    ByteVec bytes_{};
+
+    VarExpr() : Expr(EK::VarExpr) {}
 };
 
 // Global context for the entire front end.
@@ -153,6 +173,7 @@ struct Lexer {
     auto next_tok_helper(Tok* tok) -> void;
     auto lex_ident(Tok* tok) -> void;
     auto lex_num(Tok* tok) -> void;
+    auto lex_str_lit(Tok* tok) -> void;
     auto skip_whitespace() -> void;
     auto lex_line_comment() -> void;
     auto tok() -> Tok&;
@@ -172,16 +193,23 @@ struct Parser {
         while (lxr.tok().kind_ != TK::Eof) { lxr.next_tok(); }
         // Intialize the iterator.
         tok_stream_it_ = ctx_->tok_streams_[fid_].begin();
+
+        for (auto t : ctx_->tok_streams_[fid_].storage_) {
+            fmt::print("<{}>\n", str_of_tk(t.kind_));
+        }
     } 
 
     auto next_tok() -> void;
     auto tok() -> const Tok&;
     auto peek_tok(i32 idx = 0) -> const Tok&;
+    auto peek_tk(i32 idx = 0) -> TK { return peek_tok(idx).kind_; }
     auto parse_proc_expr() -> ProcExpr*;
     auto parse_x86_instruction() -> x86::X86Instruction;
     auto parse_x86_op() -> x86::X86Op;
     auto parse_num() -> i64;
     auto parse_mem_index_scale() -> x86::MemIndexScale;
+    auto parse_var_expr() -> VarExpr*;
+    auto parse_expr() -> Expr*;
 
     auto at(std::same_as<TK> auto... tk) -> i1 {
         return ((tok().kind_ == tk) or ...);

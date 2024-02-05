@@ -1,3 +1,9 @@
+let a: @b8 = "this is a string";
+//let len_a: @b8 = [255];
+//let b: @b64 = [12];
+//let c: @b32 = [1, 2, 3, 4, 5];
+
+
 fn _start {
     mov(b32 rax, b32 60);
     mov(b64 rdi, b64 231);

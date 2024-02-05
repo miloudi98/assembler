@@ -9,20 +9,14 @@
 
 namespace {
 
-auto append_proc(ByteVec& txt, fiska::fe::ProcExpr* proc) -> u64 {
+auto append_proc(ByteVec& txt, fiska::fe::ProcExpr* proc) -> void {
     using fiska::x86::X86Instruction;
     using fiska::x86::InstructionBuf;
 
-    u64 proc_sz = 0;
-
     for (fiska::x86::X86Instruction::Ref i : proc->instructions_) {
         InstructionBuf bytecode = fiska::x86::instructions::emit(i);
-        proc_sz += bytecode.sz_;
-
         for (u8 idx = 0; idx < bytecode.sz_; ++idx) { txt.push_back(bytecode.buf_[idx]); }
     }
-
-    return proc_sz;
 }
 
 } // namespace
@@ -75,6 +69,7 @@ auto fiska::x86::codegen::codegen(fe::Expr::ListRef ast, const fs::path& out_pat
     using enum ES;
     using fe::Expr;
     using fe::ProcExpr;
+    using fe::VarExpr;
     using fe::EK;
 
     Elf64_Ehdr elf_hdr{};
@@ -176,7 +171,13 @@ auto fiska::x86::codegen::codegen(fe::Expr::ListRef ast, const fs::path& out_pat
             sym->st_other = 0;
             sym->st_shndx = +Text;
             sym->st_value = text_sec.size();
-            sym->st_size = append_proc(text_sec, proc_expr);
+            append_proc(text_sec, proc_expr);
+            break;
+        }
+        case EK::VarExpr: {
+            //auto var_expr = static_cast<VarExpr*>(expr);
+            //todo("Do the same thign as procexpr, the only difference is that symbols will be in the .data section.");
+            break;
         }
         } // switch
     }

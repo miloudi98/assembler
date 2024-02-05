@@ -12,7 +12,7 @@ using fiska::x86::RI;
 using fiska::x86::BW;
 
 const utils::StringMap<TK> keywords = {
-    {"fn", TK::Fn},
+    {"fn", TK::Fn}, {"let", TK::Let},
 
     {"b8", TK::BitWidth}, {"b16", TK::BitWidth}, {"b32", TK::BitWidth}, {"b64", TK::BitWidth},
 
@@ -82,12 +82,17 @@ auto fiska::fe::str_of_tk(TK tk) -> StrRef {
     case TK::Plus: return "+";
     case TK::Minus: return "-";
     case TK::Slash: return "/";
+    case TK::Star: return "*";
+    case TK::Eq: return "=";
+    case TK::StrLit: return "STR_LIT";
     case TK::Ident: return "IDENTIFIER";
     case TK::Num: return "NUMBER";
     case TK::BitWidth: return "BIT_WIDTH";
     case TK::Fn: return "FN";
+    case TK::Let: return "LET";
     case TK::Reg: return "REG";
     case TK::Mnemonic: return "MNEMONIC";
+    case TK::Unknown: return "UNKNOWN";
     case TK::Eof: return "EOF";
     } // switch
     unreachable();
@@ -142,7 +147,7 @@ auto fiska::fe::Lexer::peek_c(i32 idx) -> char {
 }
 
 auto fiska::fe::Lexer::skip_whitespace() -> void {
-    while (std::isspace(c_)) { next_c(); }
+    while (c_ and std::isspace(c_)) { next_c(); }
 }
 
 auto fiska::fe::Lexer::lex_line_comment() -> void {
@@ -150,7 +155,7 @@ auto fiska::fe::Lexer::lex_line_comment() -> void {
     next_c();
     next_c();
 
-    while (c_ != '\n') { next_c(); }
+    while (not eof() and c_ != '\n') { next_c(); }
 }
 
 auto fiska::fe::Lexer::lex_num(Tok* tok) -> void {
@@ -159,6 +164,19 @@ auto fiska::fe::Lexer::lex_num(Tok* tok) -> void {
     } while (std::isalnum(c_));
 
     tok->kind_ = TK::Num;
+    tok->str_ = ctx_->str_pool_.save( StrRef{file_start() + tok->loc_.pos_, curr_offset() - tok->loc_.pos_} );
+    tok->loc_.len_ = u32(tok->str_.size());
+}
+
+auto fiska::fe::Lexer::lex_str_lit(Tok* tok) -> void {
+    // Eat the opening '"'.
+    next_c();
+    while (not eof() and c_ != '"') { next_c(); }
+    // Eat the closing '"';
+    assert(c_ == '"', "Missing enclosing '\"' in the string literal.");
+    next_c();
+
+    tok->kind_ = TK::StrLit;
     tok->str_ = ctx_->str_pool_.save( StrRef{file_start() + tok->loc_.pos_, curr_offset() - tok->loc_.pos_} );
     tok->loc_.len_ = u32(tok->str_.size());
 }
@@ -206,6 +224,11 @@ auto fiska::fe::Lexer::next_tok_helper(Tok* tok) -> void {
     case ':': {
         next_c();
         tok->kind_ = TK::Colon;
+        break;
+    }
+    case '=': {
+        next_c();
+        tok->kind_ = TK::Eq;
         break;
     }
     case ';': {
@@ -268,6 +291,10 @@ auto fiska::fe::Lexer::next_tok_helper(Tok* tok) -> void {
         }
         break;
     }
+    case '"': {
+        lex_str_lit(tok);
+        break;
+    }
     case '0':
     case '1':
     case '2':
@@ -286,7 +313,9 @@ auto fiska::fe::Lexer::next_tok_helper(Tok* tok) -> void {
             lex_ident(tok);
             break;
         }
-        todo("Handle unrecognized characters '{}'.", c_);
+
+        next_c();
+        tok->kind_ = TK::Unknown;
     }
     } // switch
 }
@@ -305,6 +334,66 @@ auto fiska::fe::Expr::operator new(usz sz, Ctx* ctx) -> void* {
     auto expr = static_cast<Expr*>(::operator new(sz)); 
     ctx->ast_.push_back(expr);
     return expr;
+}
+
+auto fiska::fe::Parser::parse_var_expr() -> VarExpr* {
+    using enum x86::BW;
+
+    auto var = new (ctx_) VarExpr;
+
+    expect_all(TK::Let, TK::Ident, TK::Colon, TK::At, TK::BitWidth, TK::Eq);
+
+    var->label_ = peek_tok(-5).str_;
+    var->elem_sz_ = utils::strmap_get(bws, peek_tok(-2).str_);
+
+    if (match(TK::StrLit)) {
+        expect_all(TK::StrLit, TK::SemiColon);
+
+        assert(var->elem_sz_ == B8);
+
+        StrRef strlit = peek_tok(-2).str_;
+        // Remove the opening and closing '"'.
+        strlit.remove_prefix(1);
+        strlit.remove_suffix(1);
+
+        ByteVec bytes(strlit.begin(), strlit.end());
+        var->bytes_ = std::move(bytes);
+
+    } else if (match(TK::LBracket)) {
+        Vec<i64> nums{};
+
+        consume(TK::LBracket);
+        while (not at(TK::RBracket)) {
+            nums.push_back(parse_num());
+            consume(TK::Comma);
+
+            // assert that the number fits in |var->elem_sz_|.
+            switch (var->elem_sz_) {
+            case B8: assert(utils::fits_in_b8(nums.back())); break;
+            case B16: assert(utils::fits_in_b16(nums.back())); break;
+            case B32: assert(utils::fits_in_b32(nums.back())); break;
+            default: unreachable();
+            } // switch
+        }
+        expect_all(TK::RBracket, TK::SemiColon);
+
+        ByteVec bytes(nums.size() * (+var->elem_sz_)); 
+        std::memcpy(bytes.data(), nums.data(), bytes.size());
+        var->bytes_ = std::move(bytes);
+
+    } else {
+        unreachable("Unkown variable initialization.");
+    }
+
+    return var;
+}
+
+auto fiska::fe::Parser::parse_expr() -> Expr* {
+    switch (peek_tk()) {
+    case TK::Fn: return parse_proc_expr();
+    case TK::Let: return parse_var_expr();
+    default: unreachable();
+    } // switch
 }
 
 auto fiska::fe::Parser::parse_proc_expr() -> ProcExpr* {

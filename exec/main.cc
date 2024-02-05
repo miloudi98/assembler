@@ -46,11 +46,10 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
     fiska::fe::Parser p(ctx.get(), f->fid_);
 
-    auto proc = p.parse_proc_expr();
-    //auto proc2 = p.parse_proc_expr();
-    //auto proc3 = p.parse_proc_expr();
+    auto var = p.parse_expr();
+    auto proc = p.parse_expr();
 
-    codegen::codegen({proc}, fs::path(elf_out_path));
+    codegen::codegen({var, expr}, fs::path(elf_out_path));
 
-    fmt::print("no crash, proc_name = {}\n", proc->name_);
+    fmt::print("no crash\n");
 }
