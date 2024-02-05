@@ -148,7 +148,7 @@ auto fiska::x86::codegen::codegen(fe::Expr::ListRef ast, const fs::path& out_pat
     // One greater than the symbol table index of the last local symbol (binding STB_LOCAL).
     // This is set to one because we are not going to have local symbols initially. We'll remove
     // this constraint in the future.
-    sheaders[+SymTab].sh_info = 3;
+    sheaders[+SymTab].sh_info = 1;
     sheaders[+SymTab].sh_addralign = 8;
     sheaders[+SymTab].sh_entsize = sizeof(Elf64_Sym);
 

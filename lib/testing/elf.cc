@@ -264,6 +264,7 @@ auto fiska::x86::elf::str_of_instruction_kind_with_gas_syntax(X86IK kind) -> Str
     case X86IK::Mov: return "mov";
     case X86IK::Add: return "add";
     case X86IK::Adc: return "adc";
+    case X86IK::Syscall: return "syscall";
     } // switch
     unreachable();
 }

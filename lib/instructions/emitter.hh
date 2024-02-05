@@ -2,8 +2,8 @@
 #define __X86_ASSEMBLER_LIB_INSTRUCTIONS_EMITTER_HH__
 
 #include "lib/core.hh"
-#include "lib/instructions/mov.hh"
-#include "lib/instructions/add.hh"
+#include "lib/x86_utils.hh"
+#include "lib/x86_assembler.hh"
 
 namespace fiska::x86::instructions {
 

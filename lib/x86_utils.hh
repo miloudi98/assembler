@@ -12,6 +12,7 @@ enum struct X86IK {
     Mov,
     Add,
     Adc,
+    Syscall,
 };
 
 // Bit width.
@@ -84,17 +85,6 @@ enum struct MemIndexScale : u8 {
     Two = 1,
     Four = 2,
     Eight = 3
-};
-
-// Instruction operand encoding.
-enum struct OpEn {
-    MR,
-    RM,
-    FD,
-    TD,
-    OI,
-    MI,
-    I
 };
 
 // TODO(miloudi): This is UB btw and all other type punning examples you have below.
@@ -334,6 +324,8 @@ public:
     X86InstructionOperands() {}
 
     auto size() const -> u64 { return sz_; }
+    
+    auto empty() const -> i1 { return size() == 0; }
 
     template <std::unsigned_integral Index>
     auto operator[](Index idx) const -> X86Op::Ref {

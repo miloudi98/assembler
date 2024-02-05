@@ -32,13 +32,14 @@ const utils::StringMap<TK> keywords = {
     {"dbg10", TK::Reg}, {"dbg11", TK::Reg}, {"dbg12", TK::Reg}, {"dbg13", TK::Reg}, {"dbg14", TK::Reg},
     {"dbg15", TK::Reg},
 
-    {"mov", TK::Mnemonic}, {"add", TK::Mnemonic}, {"adc", TK::Mnemonic}
+    {"mov", TK::Mnemonic}, {"add", TK::Mnemonic}, {"adc", TK::Mnemonic}, {"syscall", TK::Mnemonic},
 };
 
 const utils::StringMap<X86IK> mnemonics = {
     {"mov", X86IK::Mov},
     {"add", X86IK::Add},
-    {"adc", X86IK::Adc}
+    {"adc", X86IK::Adc},
+    {"syscall", X86IK::Syscall},
 };
 
 const utils::StringMap<RI> reg_ids = {

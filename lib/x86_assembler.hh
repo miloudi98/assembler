@@ -7,6 +7,18 @@
 
 namespace fiska::x86 {
 
+// Instruction operand encoding.
+enum struct OpEn {
+    MR,
+    RM,
+    FD,
+    TD,
+    OI,
+    MI,
+    I,
+    ZO,
+};
+
 // Instruction Buffer
 struct InstructionBuf {
     u8 buf_[/*max instruction length=*/15]{};
@@ -107,6 +119,7 @@ struct Pat : X86PatternClass {
 
     static constexpr auto match(X86Instruction::OpListRef op_list) -> i1 {
         if (sizeof...(OpClass) != op_list.size()) { return false; }
+        if (sizeof...(OpClass) == 0) { return true; }
 
         u32 op_idx = 0;
         return (OpClass::match(op_list[op_idx++]) and ...);
@@ -404,6 +417,17 @@ struct Emitter<OpEn::I> {
         out.append_opcode(opcode);
         out.append(op_list[1].as<Imm>().bw_, u64(op_list[1].as<Imm>().value_));
 
+        return out;
+    }
+};
+
+template <>
+struct Emitter<OpEn::ZO> {
+    static constexpr auto emit(u64 opcode, X86Instruction::OpListRef op_list, i1 has_rex_w, i1 has_b16_opsz_override) -> InstructionBuf {
+        assert(op_list.empty());
+
+        InstructionBuf out{};
+        out.append_opcode(opcode);
         return out;
     }
 };
