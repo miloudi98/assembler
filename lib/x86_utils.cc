@@ -82,6 +82,8 @@ auto fiska::x86::rk_of_ri(RI ri) -> RK {
     using enum RI;
 
     switch (ri) {
+    case Invalid: unreachable();
+
     case Rax:
     case Rcx:
     case Rdx:
@@ -158,6 +160,8 @@ auto fiska::x86::idx_of_ri(RI ri) -> u8 {
     using enum RI;
 
     switch (ri) {
+    case Invalid: unreachable();
+
     case Rax: return 0;
     case Rcx: return 1;
     case Rdx: return 2;

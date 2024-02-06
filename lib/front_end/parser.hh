@@ -9,6 +9,12 @@ namespace fiska::fe {
 
 struct Ctx;
 
+// Elf section types.
+enum struct SecTy {
+    Text,
+    Data,
+};
+
 // Token kind.
 enum struct TK {
     // One character tokens.
@@ -98,6 +104,7 @@ struct Expr {
 
     EK kind_{};
 
+    Expr() {}
     Expr(EK kind) : kind_(kind) {}
     virtual ~Expr() = default;
 
@@ -105,6 +112,66 @@ struct Expr {
     void* operator new(usz sz, Ctx* ctx);
     // Disallow creating expressions with no global context.
     void* operator new(usz sz) = delete;
+};
+
+enum struct X86OpIK {
+    RegExpr,
+    MemRefExpr,
+    MoffsExpr,
+    ImmExpr,
+    LabelExpr,
+};
+
+struct X86OpExpr : Expr {
+    X86OpIK ty_{};
+
+    X86OpExpr(X86OpIK kind) : ty_(kind) {}
+    virtual ~X86OpExpr() = default;
+};
+
+struct RegExpr : X86OpExpr {
+    x86::BW bw_ = x86::BW::B0;
+    x86::RI id_ = x86::RI::Invalid;
+
+    RegExpr() : X86OpExpr(X86OpIK::RegExpr) {}
+};
+
+struct MemRefExpr : X86OpExpr {
+    x86::BW bw_ = x86::BW::B0;
+    x86::RI breg_id_ = x86::RI::Invalid;
+    x86::RI ireg_id_ = x86::RI::Invalid;
+    x86::MemIndexScale scale_ = x86::MemIndexScale::Invalid;
+    i64 disp_{};
+
+    MemRefExpr() : X86OpExpr(X86OpIK::MemRefExpr) {}
+};
+
+struct MoffsExpr : X86OpExpr {
+    x86::BW bw_{};
+    i64 addr_{};
+
+    MoffsExpr() : X86OpExpr(X86OpIK::MoffsExpr) {}
+};
+
+struct ImmExpr : X86OpExpr {
+    x86::BW bw_{};
+    i64 value_{};
+
+    ImmExpr() : X86OpExpr(X86OpIK::ImmExpr) {}
+};
+
+struct LabelExpr : X86OpExpr {
+    // Tokens haveexpression  static storage duration so do their strs.
+    StrRef name_{};
+    X86OpExpr* underlying_{};
+
+    LabelExpr() : X86OpExpr(X86OpIK::LabelExpr) {}
+};
+
+// X86Instruction Expression.
+struct X86InstructionExpr {
+    x86::X86IK kind_{};
+    Vec<X86OpExpr*> operands_{};
 };
 
 struct ProcExpr : Expr {
@@ -184,6 +251,7 @@ struct Parser {
     Ctx* ctx_{};
     u16 fid_{};
     TokStream::Iterator tok_stream_it_;
+    utils::StringMap<SecTy> symtab_;
 
     explicit Parser(Ctx* ctx, u16 fid) :
         ctx_(ctx), fid_(fid)
@@ -193,10 +261,6 @@ struct Parser {
         while (lxr.tok().kind_ != TK::Eof) { lxr.next_tok(); }
         // Intialize the iterator.
         tok_stream_it_ = ctx_->tok_streams_[fid_].begin();
-
-        for (auto t : ctx_->tok_streams_[fid_].storage_) {
-            fmt::print("<{}>\n", str_of_tk(t.kind_));
-        }
     } 
 
     auto next_tok() -> void;
@@ -210,6 +274,10 @@ struct Parser {
     auto parse_mem_index_scale() -> x86::MemIndexScale;
     auto parse_var_expr() -> VarExpr*;
     auto parse_expr() -> Expr*;
+
+    // New design.
+    auto new_parse_x86_instruction() -> X86InstructionExpr;
+    auto new_parse_x86_op_expr() -> X86OpExpr*;
 
     auto at(std::same_as<TK> auto... tk) -> i1 {
         return ((tok().kind_ == tk) or ...);

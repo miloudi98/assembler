@@ -28,6 +28,8 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
     using enum fiska::x86::BW;
 
     switch (r.id_) {
+    case Invalid: unreachable();
+
     case Rax: {
         switch (r.bw_) {
         case B8: return "al";

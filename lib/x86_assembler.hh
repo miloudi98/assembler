@@ -23,9 +23,13 @@ enum struct OpEn {
 struct InstructionBuf {
     u8 buf_[/*max instruction length=*/15]{};
     u8 sz_{};
+    // This will be the size of the operand list. it helps with relocations.
+    Vec<u8> disp_or_imm_offset_{};
 
     // TODO(miloudi): This doens't belong here.
     static constexpr u8 kb16_opsz_prefix = 0x66;
+
+    auto curr_offset() -> u8 { return sz_; }
 
     void append(u8 byte) {
         buf_[sz_++] = byte;
@@ -226,6 +230,7 @@ struct Emitter<OpEn::MR> {
             or patterns::byte_regs_requiring_rex::match(r);
 
         InstructionBuf out{};
+        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -244,6 +249,7 @@ struct Emitter<OpEn::MR> {
 
         // Displacement.
         if (rm.is<Mem>() and rm.as<Mem>().disp_bw_ != BW::B0) {
+            out.disp_or_imm_offset_[0] = out.curr_offset();
             out.append(rm.as<Mem>().disp_bw_, u64(rm.as<Mem>().disp_));
         }
 
@@ -259,7 +265,9 @@ struct Emitter<OpEn::RM> {
         // Reverse the operators and use the same emitter from OpEn::MR.
         X86Instruction::OpList reversed_op_list = X86InstructionOperands({op_list[1], op_list[0]});
 
-        return Emitter<OpEn::MR>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
+        InstructionBuf out = Emitter<OpEn::MR>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
+        std::reverse(out.disp_or_imm_offset_.begin(), out.disp_or_imm_offset_.end());
+        return out;
     }
 };
 
@@ -274,6 +282,7 @@ struct Emitter<OpEn::FD> {
         rex.required = rex.w;
 
         InstructionBuf out{};
+        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -283,6 +292,8 @@ struct Emitter<OpEn::FD> {
         if (rex.required) { out.append(BW::B8, rex.raw); }
 
         out.append_opcode(opcode);
+
+        out.disp_or_imm_offset_[1] = out.curr_offset();
         out.append(BW::B64, u64(op_list[1].as<Moffs>().addr_));
 
         return out;
@@ -297,7 +308,9 @@ struct Emitter<OpEn::TD> {
         // Reverse the operators and use the same emitter from OpEn::MR.
         X86Instruction::OpList reversed_op_list = X86InstructionOperands({op_list[1], op_list[0]});
 
-        return Emitter<OpEn::FD>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
+        InstructionBuf out = Emitter<OpEn::FD>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
+        std::reverse(out.disp_or_imm_offset_.begin(), out.disp_or_imm_offset_.end());
+        return out;
     }
 };
 
@@ -329,6 +342,7 @@ struct Emitter<OpEn::OI> {
         }
 
         InstructionBuf out{};
+        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -338,6 +352,8 @@ struct Emitter<OpEn::OI> {
         if (rex.required) { out.append(BW::B8, rex.raw); }
 
         out.append_opcode(opcode);
+
+        out.disp_or_imm_offset_[1] = out.curr_offset();
         out.append(imm.bw_, u64(imm.value_));
 
         return out;
@@ -368,6 +384,7 @@ struct Emitter<OpEn::MI, slash_digit> {
         rex.required = rex.w or rex.b or rex.x or patterns::byte_regs_requiring_rex::match(rm);
 
         InstructionBuf out{};
+        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -386,9 +403,11 @@ struct Emitter<OpEn::MI, slash_digit> {
 
         // Displacement.
         if (rm.is<Mem>() and rm.as<Mem>().disp_bw_ != BW::B0) {
+            out.disp_or_imm_offset_[0] = out.curr_offset();
             out.append(rm.as<Mem>().disp_bw_, u64(rm.as<Mem>().disp_));
         }
 
+        out.disp_or_imm_offset_[1] = out.curr_offset();
         // Immediate
         out.append(op_list[1].as<Imm>().bw_, u64(op_list[1].as<Imm>().value_));
 
@@ -407,6 +426,7 @@ struct Emitter<OpEn::I> {
         rex.required = rex.w or patterns::byte_regs_requiring_rex::match(op_list[0]);
 
         InstructionBuf out{};
+        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -415,6 +435,8 @@ struct Emitter<OpEn::I> {
         if (rex.required) { out.append(BW::B8, rex.raw); }
 
         out.append_opcode(opcode);
+
+        out.disp_or_imm_offset_[1] = out.curr_offset();
         out.append(op_list[1].as<Imm>().bw_, u64(op_list[1].as<Imm>().value_));
 
         return out;

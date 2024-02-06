@@ -85,6 +85,14 @@ enum {
     SHF_EXECINSTR = (1 << 2),
 };
 
+// x86-64 relocations.
+enum {
+    // Calculated as S + A where:
+    // S: Represents the value of the symbol whose index resides in the relocation entry.
+    // A: Represents the addend used to compute the value of the relocatable field.
+    R_X86_64_32S = 11,
+};
+
 struct Elf64_Ehdr {
     u8 e_ident[EI_NIDENT];
     u16 e_type;
@@ -130,10 +138,20 @@ struct Elf64_Sym {
   u64 st_value;    // Value or address associated with the symbol
   u64 st_size;     // Size of the symbol
 
-  static auto set_binding_and_type(u8 b, u8 t) -> u8 {
-      return (b << 4) | (t & 0x0f);
-  }
+  static auto set_binding_and_type(u8 b, u8 t) -> u8 { return (b << 4) | (t & 0x0f); }
+};
 
+// Relocation entry without an explicit addend.
+struct Elf64_Rel {
+    u64 r_offset;
+    u64 r_info;
+};
+
+// Relocation entry with an explicit addend.
+struct Elf64_Rela {
+    u64 r_offset;
+    u64 r_info;
+    u32 r_addend;
 };
 
 struct StringTable {
@@ -144,6 +162,39 @@ struct StringTable {
     auto get(u32 offset) -> StrRef;
     auto data() -> const char*;
     auto size() -> u64;
+};
+
+enum struct ElfSection : u8 {
+    Null = 0,
+    Text = 1,
+    Data = 2,
+
+    NSections = 3,
+};
+static_assert(+ElfSection::NSections == 3);
+
+struct IRSymbol {
+    Str name_{};
+    ByteVec data_{};
+    ElfSection sec_{};
+    u32 sec_offset_{};
+    u32 symtab_idx_{};
+};
+
+struct IRReloc {
+    ElfSection sec_{};
+    u32 sym_offset_{};
+    BW rel_sz_{};
+    Rc<IRSymbol> sym_{};
+};
+
+struct IRBuilder {
+    utils::StringMap<ElfSection> symtab_{};
+    Vec<ByteVec> sections_(+ElfSection::NSections);
+    Vec<IRSymbol> ir_symtab_{};
+    
+    auto gen_ir() -> void;
+    auto lower_x86_operand_list(const Vec<X86OpExpr*>& expr) -> X86Instruction;
 };
 
 // Elf Section.

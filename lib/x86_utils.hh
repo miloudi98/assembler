@@ -27,6 +27,8 @@ enum struct BW : u16 {
 
 // Register Id.
 enum struct RI : u16 {
+    Invalid,
+
     Rax,  Rcx,  Rdx,  
     Rbx,  Rsp,  Rbp,  
     Rsi,  Rdi,  R8,    
@@ -81,6 +83,8 @@ enum struct MK {
 
 // Memory reference index scale.
 enum struct MemIndexScale : u8 {
+    Invalid = 4,
+
     One = 0,
     Two = 1,
     Four = 2,

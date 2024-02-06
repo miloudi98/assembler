@@ -175,7 +175,10 @@ auto fiska::x86::codegen::codegen(fe::Expr::ListRef ast, const fs::path& out_pat
             break;
         }
         case EK::VarExpr: {
-            //auto var_expr = static_cast<VarExpr*>(expr);
+            auto var_expr = static_cast<VarExpr*>(expr);
+
+            Elf64_Sym* sym = &symtab_sec.emplace_back();
+            sym->st_name = strtab_sec.save(var_expr->label_);
             //todo("Do the same thign as procexpr, the only difference is that symbols will be in the .data section.");
             break;
         }
@@ -249,4 +252,61 @@ auto fiska::x86::codegen::codegen(fe::Expr::ListRef ast, const fs::path& out_pat
 
     assert(utils::write_file(out.data(), out.size(), out_path), "Failed to write elf file to '{}'.", out_path.string());
 
+}
+
+auto fiska::x86::codegen::IRBuilder::gen_ir() -> void {
+    using fiska::fe::Expr;
+    using fiska::fe::ProcExpr;
+    using fiska::fe::EK;
+        
+    for (Expr* expr : ast_) {
+        switch (expr->kind_) {
+        case EK::ProcExpr: {
+            auto proc = static_cast<ProcExpr*>(expr);
+
+            IRSymbol* ir_sym = &ir_symtab_.emplace_back();
+            ir_sym->name_ = proc->name_;
+            ir_sym->sec_ = utils::strmap_get(sym_tab_, proc->name_);
+            ir_sym->sec_offset_ = sections_[+ir_sym->sec_].size();
+            ir_sym->symtab_idx_ = u32(ir_symtab_.size() - 1);
+
+            for (const X86InstructionExpr& x86_inst_expr : proc->body_) {
+                X86Instruction lowered_instr = lower_x86_instruction(x86_inst_expr);
+                auto code = instructions::emit(lowered_instr);
+                ir_sym->data_.insert(ir_sym->data_.end(), code.begin(), code.end());
+
+                for (u8 expr_idx = 0; expr_idx < u8(x86_inst_expr.operands_.size()); ++expr_idx) {
+                    if (x86_inst_expr.operands_[expr_idx].kind_ != X86OpIK::LabelExpr) { continue; }
+
+                    IRReloc* rel = &rels.emplace_back();
+                    rel->sec_ = ir_sym->sec_;
+                    rel->sym_offset_ = ir_sym->data_.size() - code.size() + code.disp_or_imm_offset_[expr_idx];
+                    rel->sym_ = ir_sym;
+                }
+            }
+        }
+        } // switch
+    }
+}
+
+auto fiska::x86::codegen::IRBuilder::lower_x86_op_expr(const Vec<X86OpExpr*>& expr) -> X86Instruction::List {
+    switch (expr->kind_) {
+    case X86OpIK::RegExpr: {
+        auto reg = static_cast<RegExpr*>(expr);
+        return X86Op {
+            Reg(reg->bw_, reg->id_)
+        };
+    }
+    case X86OpIK::MemRefExpr: {
+        auto mem_ref = static_cast<MemRefExpr*>(expr);
+
+        return X86Op {
+
+        };
+    }
+    case X86OpIK::LabelExpr: {
+        auto label = static_cast<LabelExpr*>(expr);
+
+    }
+    }
 }

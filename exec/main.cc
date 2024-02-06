@@ -49,7 +49,7 @@ auto main(i32 argc, char* argv[]) -> i32 {
     auto var = p.parse_expr();
     auto proc = p.parse_expr();
 
-    codegen::codegen({var, expr}, fs::path(elf_out_path));
+    codegen::codegen({var, proc}, fs::path(elf_out_path));
 
     fmt::print("no crash\n");
 }

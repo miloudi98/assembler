@@ -572,3 +572,122 @@ auto fiska::fe::Parser::peek_tok(i32 idx) -> const Tok& {
     return *ptok;
 }
 
+auto fiska::fe::Parser::new_parse_x86_instruction() -> X86InstructionExpr {
+    X86InstructionExpr x86_inst_expr{};
+
+    expect(TK::Mnemonic);
+    x86_inst_expr.kind_ = utils::strmap_get(mnemonics, peek_tok(-1).str_);
+
+    expect(TK::LParen);
+    while (not at(TK::RParen)) {
+        x86_inst_expr.operands_.push_back(new_parse_x86_op_expr());
+        consume(TK::Comma);
+    }
+    expect_all(TK::RParen, TK::SemiColon);
+
+    return x86_inst_expr;
+}
+
+
+auto fiska::fe::Parser::new_parse_x86_op_expr() -> X86OpExpr* {
+    using x86::BW;
+    using x86::RI;
+
+    // Register.
+    if (match(TK::BitWidth, TK::Reg)) {
+        expect_all(TK::BitWidth, TK::Reg);
+
+        auto reg = new (ctx_) RegExpr;
+        reg->bw_ = utils::strmap_get(bws, peek_tok(-2).str_);
+        reg->id_ = utils::strmap_get(reg_ids, peek_tok(-1).str_);
+
+        return reg;
+    }
+
+    // Immediate.
+    if (match(TK::BitWidth, TK::Num) 
+        or match(TK::BitWidth, TK::Plus, TK::Num) 
+        or match(TK::BitWidth, TK::Minus, TK::Num)
+        or match(TK::BitWidth, TK::Ident))
+    {
+        expect(TK::BitWidth);
+        i1 is_label_expr = match(TK::BitWidth, TK::Ident);
+        
+        auto imm = new (ctx_) ImmExpr;
+        imm->bw_ = utils::strmap_get(bws, peek_tok(-1).str_);;
+        imm->value_ = is_label_expr ? 0 : parse_num();
+
+        if (not is_label_expr) { return imm; }
+
+        expect(TK::Ident);
+
+        auto label = new (ctx_) LabelExpr;
+        label->name_ = peek_tok(-1).str_;
+        label->underlying_ = imm;
+
+        return label;
+    }
+
+    // Memory reference.
+    // TODO(miloudi): You're assuming valid syntax!
+    if (match(TK::At, TK::BitWidth, TK::LBracket)) {
+        expect_all(TK::At, TK::BitWidth);
+
+        auto mem_ref = new (ctx_) MemRefExpr;
+        mem_ref->bw_ = utils::strmap_get(bws, peek_tok(-1).str_);
+
+        expect(TK::LBracket);
+        if (consume(TK::Reg)) {
+            mem_ref->breg_id_ = utils::strmap_get(reg_ids, peek_tok(-1).str_);
+        }
+        expect(TK::RBracket);
+
+        expect(TK::LBracket);
+        if (consume(TK::Num)) {
+            mem_ref->scale_ = parse_mem_index_scale();
+
+            // assert that an index register exists.
+            assert(match(TK::RBracket, TK::LBracket, TK::Reg));
+        }
+        expect(TK::RBracket);
+
+        expect(TK::LBracket);
+        if (consume(TK::Reg)) {
+            mem_ref->ireg_id_ = utils::strmap_get(reg_ids, peek_tok(-1).str_);
+
+            // assert that a scale exists.
+            assert(peek_tk(-3) == TK::Num);
+        }
+        expect(TK::RBracket);
+
+        // displacement.
+        if (at(TK::Plus, TK::Minus)) {
+            mem_ref->disp_ = parse_num();
+        }
+
+        return mem_ref;
+    }
+
+    // Absolute Memory offset.
+    if (match(TK::At, TK::BitWidth, TK::Num)
+        or match (TK::At, TK::BitWidth, TK::Ident))
+    {
+        expect_all(TK::At, TK::BitWidth);
+        i1 is_label_expr = match(TK::At, TK::BitWidth, TK::Ident);
+
+        auto moffs = new (ctx_) MoffsExpr;
+        moffs->bw_ = utils::strmap_get(bws, peek_tok(-2).str_);
+        moffs->addr_ = is_label_expr ? 0 : parse_num();
+
+        if (not is_label_expr) { return moffs; }
+
+        expect(TK::Ident);
+        auto label = new (ctx_) LabelExpr;
+        label->name_ = peek_tok(-1).str_;
+        label->underlying_ = moffs;
+
+        return label;
+    }
+
+    unreachable("Invalid x86Operand.");
+}
