@@ -43,7 +43,7 @@ auto fiska::x86::fe::Parser::parse_proc() -> ProcExpr* {
     while (not at(TK::RBrace)) {
         proc->body_.push_back(parse_x86_instr_expr());
     }
-    expect_all(TK::RBrace, TK::SemiColon);
+    expect(TK::RBrace);
 
     return proc;
 }
@@ -101,7 +101,7 @@ auto fiska::x86::fe::Parser::parse_expr(i8 prec) -> Expr* {
                 // Scale.
                 expect_all(TK::LBracket, TK::Num);
                 i64 scale = parse_i64(peek_tok_str(-1));
-                assert((isa<1LL, 2LL, 4LL, 8LL>(scale)), "Illegal index scale.");
+                assert((isa<1, 2, 4, 8>(scale)), "Illegal index scale.");
                 mem->scale_ = i8(scale);
 
                 // Index register.

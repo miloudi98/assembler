@@ -272,78 +272,78 @@ public:
 
         return mem;
 
-        //// set the kind.
-        //if (mem.base_reg_ and mem.index_reg_) {
-        //    mem.kind_ = MK::BaseIndexDisp;
-        //} else if (not mem.base_reg_ and mem.index_reg_) {
-        //    mem.kind_ = MK::IndexDisp;
-        //} else if (mem.base_reg_ and not mem.index_reg_) {
-        //    mem.kind_ = MK::BaseDisp;
-        //} else {
-        //    mem.kind_ = MK::DispOnly;
-        //}
+        // set the kind.
+        if (mem.base_reg_ and mem.index_reg_) {
+            mem.kind_ = MK::BaseIndexDisp;
+        } else if (not mem.base_reg_ and mem.index_reg_) {
+            mem.kind_ = MK::IndexDisp;
+        } else if (mem.base_reg_ and not mem.index_reg_) {
+            mem.kind_ = MK::BaseDisp;
+        } else {
+            mem.kind_ = MK::DispOnly;
+        }
 
-        //// set the displacement bit width.
-        //if (mem.base_reg_ and mem.base_reg_->id_ == Rip) {
-        //    mem.disp_bw_ = B32;
-        //}
-        //
-        //// TODO(miloudi): Change the name of |::is| to something like |isa| to avoid conflicting with
-        //// X86Op's function.
-        //if (::is<MK::IndexDisp, MK::DispOnly>(mem.kind_)) {
-        //    mem.disp_bw_ = B32;
-        //}
+        // set the displacement bit width.
+        if (mem.base_reg_ and mem.base_reg_->id_ == Rip) {
+            mem.disp_bw_ = B32;
+        }
+        
+        // TODO(miloudi): Change the name of |::is| to something like |isa| to avoid conflicting with
+        // X86Op's function.
+        if (::is<MK::IndexDisp, MK::DispOnly>(mem.kind_)) {
+            mem.disp_bw_ = B32;
+        }
 
-        //if (mem.base_reg_ and ::is<Rbp, R13>(mem.base_reg_->id_)) {
-        //    mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
-        //}
+        if (mem.base_reg_ and ::is<Rbp, R13>(mem.base_reg_->id_)) {
+            mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
+        }
 
-        //if (mem.disp_ and mem.disp_bw_ == B0) {
-        //    mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
-        //}
+        if (mem.disp_ and mem.disp_bw_ == B0) {
+            mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
+        }
 
-        //// set the mod.
-        //if (::is<MK::DispOnly, MK::IndexDisp>(mem.kind_) 
-        //        or mem.disp_bw_ == B0 
-        //        or (mem.base_reg_ and mem.base_reg_->id_ == Rip)) {
-        //    mem.mod_ = kmod_mem;
-        //} else {
-        //    mem.mod_ = utils::fits_in_b8(mem.disp_) ? kmod_mem_disp8 : kmod_mem_disp32;
-        //}
+        // set the mod.
+        if (::is<MK::DispOnly, MK::IndexDisp>(mem.kind_) 
+                or mem.disp_bw_ == B0 
+                or (mem.base_reg_ and mem.base_reg_->id_ == Rip)) {
+            mem.mod_ = kmod_mem;
+        } else {
+            mem.mod_ = utils::fits_in_b8(mem.disp_) ? kmod_mem_disp8 : kmod_mem_disp32;
+        }
 
-        //// set the sib.
-        //// This is the only case where we don't need a sib byte.
-        //if (not (mem.kind_ == MK::BaseDisp and not ::is<Rsp, R12>(mem.base_reg_->id_))) {
-        //    Sib sib{};
-        //    switch (mem.kind_) {
-        //    case MK::BaseDisp: {
-        //        sib.base = mem.base_reg_->idx_;
-        //        sib.index = ksib_no_index_reg;
-        //        break;
-        //    }
-        //    case MK::BaseIndexDisp: {
-        //        sib.base = mem.base_reg_->idx_;
-        //        sib.index = mem.index_reg_->idx_;
-        //        sib.scale = +mem.scale_.value();
-        //        break;
-        //    }
-        //    case MK::IndexDisp: {
-        //        sib.base = ksib_no_base_reg;
-        //        sib.index = mem.index_reg_->idx_;
-        //        sib.scale = +mem.scale_.value();
-        //        break;
-        //    }
-        //    case MK::DispOnly: {
-        //        sib.base = ksib_no_base_reg;
-        //        sib.index = ksib_no_index_reg;
-        //        break;
-        //    }
-        //    } // switch
+        // set the sib.
+        // This is the only case where we don't need a sib byte.
+        if (not (mem.kind_ == MK::BaseDisp and not ::is<Rsp, R12>(mem.base_reg_->id_))) {
+            Sib sib{};
+            switch (mem.kind_) {
+            case MK::BaseDisp: {
+                sib.base = mem.base_reg_->idx_;
+                sib.index = ksib_no_index_reg;
+                break;
+            }
+            case MK::BaseIndexDisp: {
+                sib.base = mem.base_reg_->idx_;
+                sib.index = mem.index_reg_->idx_;
+                sib.scale = +mem.scale_.value();
+                break;
+            }
+            case MK::IndexDisp: {
+                sib.base = ksib_no_base_reg;
+                sib.index = mem.index_reg_->idx_;
+                sib.scale = +mem.scale_.value();
+                break;
+            }
+            case MK::DispOnly: {
+                sib.base = ksib_no_base_reg;
+                sib.index = ksib_no_index_reg;
+                break;
+            }
+            } // switch
 
-        //    mem.sib_ = sib.raw;
-        //}
+            mem.sib_ = sib.raw;
+        }
 
-        //return mem;
+        return mem;
     }
     GCC_DIAG_IGNORE_POP();
 };

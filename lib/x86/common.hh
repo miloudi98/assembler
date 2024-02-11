@@ -19,7 +19,6 @@ enum struct X86Mnemonic {
 enum struct BW : i8 {
     Invalid = -1,
 
-    B0 = 0,
     B8 = 8,
     B16 = 16,
     B24 = 24,
@@ -101,6 +100,9 @@ struct Rex {
 
     auto raw() const -> u8 {
         return (mod << 4) | (w << 3) | (r << 2) | (x << 1) | b;
+    }
+    auto has_set_bits() const -> i1 {
+        return b or x or r or w;
     }
 };
 

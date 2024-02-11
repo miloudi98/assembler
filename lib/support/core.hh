@@ -138,9 +138,9 @@ constexpr auto operator+(E e) -> std::underlying_type_t<E> {
     return std::to_underlying(e);
 }
 
-template <auto T, std::same_as<decltype(T)> auto... Us>
-auto isa(const decltype(T)& arg) -> i1 {
-    return (arg == T) or ((arg == Us) or ...);
+template <auto... Us>
+auto isa(const auto& arg) -> i1 {
+    return ((arg == Us) or ...);
 }
 
 namespace utils {
