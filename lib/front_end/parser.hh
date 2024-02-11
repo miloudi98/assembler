@@ -1,111 +1,38 @@
-#ifndef __X86_ASSEMBLER_LIB_PARSER_HH__
-#define __X86_ASSEMBLER_LIB_PARSER_HH__
+#ifndef __X86_ASSEMBLER_LIB_FRONT_END_PARSER_HH__
+#define __X86_ASSEMBLER_LIB_FRONT_END_PARSER_HH__
 
-#include "lib/core.hh"
-#include "lib/x86_utils.hh"
-#include "lib/front_end/support.hh"
+#include "lib/support/core.hh"
+#include "lib/x86/common.hh"
+#include "lib/front_end/lexer.hh"
 
-namespace fiska::fe {
+namespace fiska::x86::fe {
 
 struct Ctx;
-
-// Elf section types.
-enum struct SecTy {
-    Text,
-    Data,
-};
-
-// Token kind.
-enum struct TK {
-    // One character tokens.
-    // '('
-    LParen,
-    // ')'
-    RParen,
-    // '{'
-    LBrace,
-    // '}'
-    RBrace,
-    // '['
-    LBracket,
-    // ']'
-    RBracket,
-    // '@'
-    At,
-    // ';'
-    SemiColon,
-    // ':'
-    Colon,
-    // ','
-    Comma,
-    // '+'
-    Plus,
-    // '-'
-    Minus,
-    // '/'
-    Slash,
-    // '*'
-    Star,
-    // '='
-    Eq,
-
-    // Multi-character tokens.
-    // Identifier
-    Ident,
-    // String literal.
-    StrLit,
-    // Number
-    Num,
-    // Bit width. (e.g. 'b8', 'b16', 'b32')
-    BitWidth,
-    // keyword 'let'
-    Let,
-    // keyword 'fn'
-    Fn,
-    // x86 Registers.
-    Reg,
-    // x86 mnemonic. (e.g 'mov', 'addcx')
-    Mnemonic,
-
-    // Unknown token.
-    Unknown,
-
-    // End of file.
-    Eof,
-};
-auto str_of_tk(TK tk) -> StrRef;
-
-struct Tok {
-    TK kind_{};
-    StrRef str_{};
-    Location loc_{};
-};
-
-struct TokStream {
-    using Storage = Vec<Tok>;
-    using Iterator = Vec<Tok>::iterator;
-    Storage storage_;
-
-    auto alloc_tok() -> Tok* { return &storage_.emplace_back(); }
-    auto back() -> Tok& { return storage_.back(); }
-    auto begin() -> Iterator { return storage_.begin(); }
-    auto end() -> Iterator { return storage_.end(); }
-};
-
-// Expression kind.
-enum struct EK {
-    ProcExpr,
-    VarExpr
-};
-
 struct Expr {
     using List = Vec<Expr*>;
     using ListRef = const List&;
 
-    EK kind_{};
+    enum struct Kind {
+        Invalid, 
 
-    Expr() {}
-    Expr(EK kind) : kind_(kind) {}
+        Proc,
+        Type,
+        RegLit,
+        MemRefLit,
+        ImmLit,
+        MoffsLit,
+        IntLit,
+        Label,
+
+        BinaryOp,
+        UnaryOp,
+
+        X86Instr,
+    };
+
+    Kind kind_ = Kind::Invalid;
+
+    Expr(Kind kind) : kind_(kind) {}
     virtual ~Expr() = default;
 
     // Create an expression and bind it to the global context.
@@ -114,171 +41,108 @@ struct Expr {
     void* operator new(usz sz) = delete;
 };
 
-enum struct X86OpIK {
-    RegExpr,
-    MemRefExpr,
-    MoffsExpr,
-    ImmExpr,
-    LabelExpr,
+// Register expression.
+struct RegLitExpr : Expr {
+    BW bw_ = BW::Invalid;
+    RI id_ = RI::Invalid;
+
+    RegLitExpr() : 
+        Expr(Expr::Kind::RegLit) {}
 };
 
-struct X86OpExpr : Expr {
-    X86OpIK ty_{};
+struct MemRefLitExpr : Expr {
+    BW bw_ = BW::Invalid;
+    RI brid_ = RI::Invalid;
+    RI irid_ = RI::Invalid;
+    i8 scale_{};
 
-    X86OpExpr(X86OpIK kind) : ty_(kind) {}
-    virtual ~X86OpExpr() = default;
+    MemRefLitExpr() : Expr(Expr::Kind::MemRefLit) {}
 };
 
-struct RegExpr : X86OpExpr {
-    x86::BW bw_ = x86::BW::B0;
-    x86::RI id_ = x86::RI::Invalid;
+struct ImmLitExpr : Expr {
+    BW bw_ = BW::Invalid;
+    Expr* value_ = nullptr;
 
-    RegExpr() : X86OpExpr(X86OpIK::RegExpr) {}
+    ImmLitExpr() : Expr(Expr::Kind::ImmLit) {}
 };
 
-struct MemRefExpr : X86OpExpr {
-    x86::BW bw_ = x86::BW::B0;
-    x86::RI breg_id_ = x86::RI::Invalid;
-    x86::RI ireg_id_ = x86::RI::Invalid;
-    x86::MemIndexScale scale_ = x86::MemIndexScale::Invalid;
-    i64 disp_{};
+struct MoffsLitExpr : Expr {
+    BW bw_ = BW::Invalid;
+    Expr* addr_ = nullptr;
 
-    MemRefExpr() : X86OpExpr(X86OpIK::MemRefExpr) {}
+    MoffsLitExpr() : Expr(Expr::Kind::MoffsLit) {}
 };
 
-struct MoffsExpr : X86OpExpr {
-    x86::BW bw_{};
-    i64 addr_{};
-
-    MoffsExpr() : X86OpExpr(X86OpIK::MoffsExpr) {}
-};
-
-struct ImmExpr : X86OpExpr {
-    x86::BW bw_{};
+struct IntLitExpr : Expr {
     i64 value_{};
 
-    ImmExpr() : X86OpExpr(X86OpIK::ImmExpr) {}
+    IntLitExpr(i64 v) : 
+        Expr(Expr::Kind::IntLit), value_(v) {}
 };
 
-struct LabelExpr : X86OpExpr {
-    // Tokens haveexpression  static storage duration so do their strs.
-    StrRef name_{};
-    X86OpExpr* underlying_{};
+struct LabelExpr : Expr {
+    StrRef name_;
 
-    LabelExpr() : X86OpExpr(X86OpIK::LabelExpr) {}
+    LabelExpr(StrRef name) :
+        Expr(Expr::Kind::Label), name_(name) {}
 };
 
-// X86Instruction Expression.
-struct X86InstructionExpr {
-    x86::X86IK kind_{};
-    Vec<X86OpExpr*> operands_{};
+struct BinaryOpExpr : Expr {
+    Expr* lhs_ = nullptr;
+    Expr* rhs_ = nullptr;
+    TK op_ = TK::Invalid;
+
+    BinaryOpExpr(TK op, Expr* lhs, Expr* rhs) : 
+        Expr(Expr::Kind::BinaryOp), lhs_(lhs), rhs_(rhs), op_(op) {}
+};
+
+struct UnaryOpExpr : Expr {
+    TK op_ = TK::Invalid;
+    Expr* inner_ = nullptr;
+
+    UnaryOpExpr() : Expr(Expr::Kind::UnaryOp) {}
+    UnaryOpExpr(TK o, Expr* i) :
+        Expr(Expr::Kind::UnaryOp), op_(o), inner_(i) {}
+};
+
+struct X86InstrExpr : Expr {
+    X86Mnemonic mmic_ = X86Mnemonic::Invalid;
+    Vec<Expr*> ops_;
+
+    X86InstrExpr() : Expr(Expr::Kind::X86Instr) {}
 };
 
 struct ProcExpr : Expr {
-    StrRef name_{};
-    x86::X86Instruction::List instructions_{};
+    StrRef name_;
+    Vec<X86InstrExpr*> body_;
 
-    ProcExpr() : Expr(EK::ProcExpr) {}
-};
-
-struct VarExpr : Expr {
-    StrRef label_{};
-    x86::BW elem_sz_{};
-    ByteVec bytes_{};
-
-    VarExpr() : Expr(EK::VarExpr) {}
-};
-
-// Global context for the entire front end.
-struct Ctx {
-    // List of files loaded.
-    Vec<Box<File>> files_{};
-    // Tokens of each file loaded.
-    Vec<TokStream> tok_streams_{};
-    // Ast nodes allocated.
-    Vec<Expr*> ast_{};
-    // Pool of interned strings.
-    StringInterner str_pool_{};
-
-    // Load file to memory.
-    auto load_file(const fs::path& path) -> File*;
-    // Return the file with fid |fid|.
-    auto get_file(u16 fid) -> File*;
-
-    // Deallocate all ast nodes and interned strings.
-    ~Ctx() { 
-        rgs::for_each(ast_, [](Expr* expr) { delete expr; });
-    }
-};
-
-struct Lexer {
-    Ctx* ctx_{};
-    TokStream& tok_stream_;
-    u16 fid_{};
-    char c_{};
-    const char* curr_{};
-    const char* end_{};
-
-    explicit Lexer(Ctx* ctx, u16 fid) : 
-        ctx_(ctx), tok_stream_(ctx->tok_streams_[fid]),
-        fid_(fid), curr_(ctx->files_[fid]->data()),
-        end_(curr_ + ctx->files_[fid]->size())
-    {
-        // Initialize the first character.
-        next_c();
-        // Initialize the first token.
-        next_tok();
-    }
-
-    auto file_start() -> const char*;
-    auto eof() -> i1;
-    auto starts_ident(char c) -> i1;
-    auto continues_ident(char c) -> i1;
-    auto next_c() -> void;
-    auto peek_c(i32 idx = 0) -> char;
-    auto next_tok() -> void;
-    auto next_tok_helper(Tok* tok) -> void;
-    auto lex_ident(Tok* tok) -> void;
-    auto lex_num(Tok* tok) -> void;
-    auto lex_str_lit(Tok* tok) -> void;
-    auto skip_whitespace() -> void;
-    auto lex_line_comment() -> void;
-    auto tok() -> Tok&;
-    auto curr_offset() -> u32;
+    ProcExpr() : Expr(Expr::Kind::Proc) {}
 };
 
 struct Parser {
     Ctx* ctx_{};
     u16 fid_{};
     TokStream::Iterator tok_stream_it_;
-    utils::StringMap<SecTy> symtab_;
 
-    explicit Parser(Ctx* ctx, u16 fid) :
-        ctx_(ctx), fid_(fid)
-    {
-        // Lex the file with id |fid|.
-        Lexer lxr{ctx, fid};
-        while (lxr.tok().kind_ != TK::Eof) { lxr.next_tok(); }
-        // Intialize the iterator.
-        tok_stream_it_ = ctx_->tok_streams_[fid_].begin();
-    } 
+    explicit Parser(Ctx* ctx, u16 fid);
 
     auto next_tok() -> void;
     auto tok() -> const Tok&;
     auto peek_tok(i32 idx = 0) -> const Tok&;
-    auto peek_tk(i32 idx = 0) -> TK { return peek_tok(idx).kind_; }
-    auto parse_proc_expr() -> ProcExpr*;
-    auto parse_x86_instruction() -> x86::X86Instruction;
-    auto parse_x86_op() -> x86::X86Op;
-    auto parse_num() -> i64;
-    auto parse_mem_index_scale() -> x86::MemIndexScale;
-    auto parse_var_expr() -> VarExpr*;
-    auto parse_expr() -> Expr*;
+    auto peek_tok_kind(i32 idx = 0) -> TK { return peek_tok(idx).kind_; }
+    auto peek_tok_str(i32 idx = 0) -> StrRef { return peek_tok(idx).str_; }
 
-    // New design.
-    auto new_parse_x86_instruction() -> X86InstructionExpr;
-    auto new_parse_x86_op_expr() -> X86OpExpr*;
+    auto parse_proc() -> ProcExpr*;
+    auto parse_x86_instr_expr() -> X86InstrExpr*;
+    auto parse_expr(i8 prec = 0) -> Expr*;
+    auto perform_constant_folding(Expr*) -> Expr*;
+    auto parse_i64(StrRef str) -> i64;
 
+    static auto prefix_prec_of_tok_kind(TK tk) -> i8;
+    static auto infix_prec_of_tok_kind(TK tk) -> i8;
+    static auto parse_i64() -> i64;
+
+    // Helper methods.
     auto at(std::same_as<TK> auto... tk) -> i1 {
         return ((tok().kind_ == tk) or ...);
     }
@@ -289,7 +153,7 @@ struct Parser {
         return true;
     }
 
-    // TODO(miloudi): Have proper error handling.
+    // TODO(miloudi): Have proper error handling please.
     auto expect_any(std::same_as<TK> auto... tk) -> void {
         assert(consume(tk...));
     }
@@ -302,12 +166,12 @@ struct Parser {
 
     auto match(std::same_as<TK> auto... tk) -> i1 {
         i32 idx = 0;
-        return ((peek_tok(idx++).kind_ == tk) and ...);
+        return ((peek_tok_kind(idx++) == tk) and ...);
     }
 
 };
 
 
-} // namespace fiska::fe
+} // namespace fiska::x86::fe
 
-#endif // __X86_ASSEMBLER_LIB_PARSER_HH__
+#endif // __X86_ASSEMBLER_LIB_FRONT_END_PARSER_HH__

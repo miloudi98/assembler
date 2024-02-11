@@ -2,7 +2,7 @@
 
 #include "lib/core.hh"
 
-auto fiska::fe::StringInterner::save(StrRef str) -> StrRef {
+auto fiska::x86::fe::StringInterner::save(StrRef str) -> StrRef {
     auto [slot, is_inserted] = unique_strings_.insert(str);
     if (is_inserted) {
         char* alloc = new char[str.size() + 1];
@@ -12,6 +12,6 @@ auto fiska::fe::StringInterner::save(StrRef str) -> StrRef {
     return *slot;
 }
 
-fiska::fe::StringInterner::~StringInterner() {
+fiska::x86::fe::StringInterner::~StringInterner() {
     rgs::for_each(storage_, [](char* alloc) { delete[] alloc; });
 }

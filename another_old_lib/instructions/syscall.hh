@@ -12,7 +12,7 @@ using syscall = InstrExprList<
     // 0x0f 0x05 SYSCALL -- ZO
     InstrExpr<
         OpCode<0x0f, 0x05>,
-        Pat<Rex_W::No, B16OpSz::No>,
+        Pat<>,
         Emitter<OpEn::ZO>
     >
 >;

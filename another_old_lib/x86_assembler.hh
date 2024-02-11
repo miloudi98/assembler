@@ -19,12 +19,13 @@ enum struct OpEn {
     ZO,
 };
 
+// TODO(miloudi): Please remove this crap.
 // Instruction Buffer
 struct InstructionBuf {
     u8 buf_[/*max instruction length=*/15]{};
     u8 sz_{};
-    // This will be the size of the operand list. it helps with relocations.
-    Vec<u8> disp_or_imm_offset_{};
+    // Where the patch should be applied in case the instruction is patchable.
+    u8 patch_offset_{};
 
     // TODO(miloudi): This doens't belong here.
     static constexpr u8 kb16_opsz_prefix = 0x66;
@@ -37,6 +38,8 @@ struct InstructionBuf {
 
     void append(BW bw, u64 qword) {
         switch (bw) {
+        case BW::Invalid: unreachable();
+
         case BW::B0:
             break;
         case BW::B8: {
@@ -115,7 +118,9 @@ enum struct B16OpSz : i1 {
 //=====================================================
 // X86 Operand patterns.
 //=====================================================
-template <Rex_W with_rex_w, B16OpSz with_b16_opsz_override, patterns::IsX86OpClass... OpClass> 
+template <Rex_W with_rex_w = Rex_W::No,
+         B16OpSz with_b16_opsz_override = B16OpSz::No,
+         patterns::IsX86OpClass... OpClass> 
 struct Pat : X86PatternClass {
     static constexpr auto has_rex_w(X86Instruction::OpListRef op_list) -> i1 { return +with_rex_w; }
 
@@ -149,10 +154,13 @@ struct Pat : X86PatternClass {
 // Matches the list of x86 operand against multiple patterns.
 template <IsX86PatternClass... Pattern>
 struct Or : X86PatternClass {
+    // TODO(miloudi): This is really not needed at all.
+    // |has_*| functions can be replaced by changing the return type of the |match| function. It's that simple.
     static constexpr auto has_rex_w(X86Instruction::OpListRef op_list) -> i1 {
         return ((Pattern::match(op_list) and Pattern::has_rex_w(op_list)) or ...);
     }
 
+    // TODO(miloudi): This is really not needed man.
     static constexpr auto has_b16_opsz_override(X86Instruction::OpListRef op_list) -> i1 {
         return ((Pattern::match(op_list) and Pattern::has_b16_opsz_override(op_list)) or ...);
     }
@@ -174,11 +182,11 @@ struct Or : X86PatternClass {
     }
 };
 
-//====================================================================
+//=====================================================================================================================
 // [[intel]]
 // /digit — A digit between 0 and 7 indicates that the ModR/M byte of the instruction uses only the r/m (register
 // or memory) operand. The reg field contains the digit that provides an extension to the instruction's opcode
-//====================================================================
+//=====================================================================================================================
 enum struct SlashDigit : u8 {
     Zero = 0,
     One = 1,
@@ -225,12 +233,13 @@ struct Emitter<OpEn::MR> {
             rex.b = rm.as<Mem>().base_reg_ and rm.as<Mem>().base_reg_->requires_ext_;
             rex.x = rm.as<Mem>().index_reg_ and rm.as<Mem>().index_reg_->requires_ext_;
         }
+        // TODO(miloudi): This is UB btw.
+        // and it's not really needed.
         rex.required = rex.w or rex.b or rex.x or rex.r
             or patterns::byte_regs_requiring_rex::match(rm)
             or patterns::byte_regs_requiring_rex::match(r);
 
         InstructionBuf out{};
-        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -244,12 +253,13 @@ struct Emitter<OpEn::MR> {
 
         // Sib byte.
         if (rm.is<Mem>() and rm.as<Mem>().sib_) {
+            out.patch_offset_ = out.curr_offset();
             out.append(rm.as<Mem>().sib_.value());
         }
 
         // Displacement.
         if (rm.is<Mem>() and rm.as<Mem>().disp_bw_ != BW::B0) {
-            out.disp_or_imm_offset_[0] = out.curr_offset();
+            out.patch_offset_ = out.curr_offset();
             out.append(rm.as<Mem>().disp_bw_, u64(rm.as<Mem>().disp_));
         }
 
@@ -264,10 +274,7 @@ struct Emitter<OpEn::RM> {
 
         // Reverse the operators and use the same emitter from OpEn::MR.
         X86Instruction::OpList reversed_op_list = X86InstructionOperands({op_list[1], op_list[0]});
-
-        InstructionBuf out = Emitter<OpEn::MR>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
-        std::reverse(out.disp_or_imm_offset_.begin(), out.disp_or_imm_offset_.end());
-        return out;
+        return Emitter<OpEn::MR>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
     }
 };
 
@@ -282,7 +289,6 @@ struct Emitter<OpEn::FD> {
         rex.required = rex.w;
 
         InstructionBuf out{};
-        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -293,7 +299,6 @@ struct Emitter<OpEn::FD> {
 
         out.append_opcode(opcode);
 
-        out.disp_or_imm_offset_[1] = out.curr_offset();
         out.append(BW::B64, u64(op_list[1].as<Moffs>().addr_));
 
         return out;
@@ -307,10 +312,7 @@ struct Emitter<OpEn::TD> {
 
         // Reverse the operators and use the same emitter from OpEn::MR.
         X86Instruction::OpList reversed_op_list = X86InstructionOperands({op_list[1], op_list[0]});
-
-        InstructionBuf out = Emitter<OpEn::FD>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
-        std::reverse(out.disp_or_imm_offset_.begin(), out.disp_or_imm_offset_.end());
-        return out;
+        return Emitter<OpEn::FD>::emit(opcode, reversed_op_list, has_rex_w, has_b16_opsz_override);
     }
 };
 
@@ -342,7 +344,6 @@ struct Emitter<OpEn::OI> {
         }
 
         InstructionBuf out{};
-        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -353,7 +354,6 @@ struct Emitter<OpEn::OI> {
 
         out.append_opcode(opcode);
 
-        out.disp_or_imm_offset_[1] = out.curr_offset();
         out.append(imm.bw_, u64(imm.value_));
 
         return out;
@@ -384,7 +384,6 @@ struct Emitter<OpEn::MI, slash_digit> {
         rex.required = rex.w or rex.b or rex.x or patterns::byte_regs_requiring_rex::match(rm);
 
         InstructionBuf out{};
-        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -403,14 +402,12 @@ struct Emitter<OpEn::MI, slash_digit> {
 
         // Displacement.
         if (rm.is<Mem>() and rm.as<Mem>().disp_bw_ != BW::B0) {
-            out.disp_or_imm_offset_[0] = out.curr_offset();
+            out.patch_offset_ = out.curr_offset();
             out.append(rm.as<Mem>().disp_bw_, u64(rm.as<Mem>().disp_));
         }
 
-        out.disp_or_imm_offset_[1] = out.curr_offset();
         // Immediate
         out.append(op_list[1].as<Imm>().bw_, u64(op_list[1].as<Imm>().value_));
-
         return out;
     }
 };
@@ -426,7 +423,6 @@ struct Emitter<OpEn::I> {
         rex.required = rex.w or patterns::byte_regs_requiring_rex::match(op_list[0]);
 
         InstructionBuf out{};
-        out.disp_or_imm_offset_.resize(op_list.size());
 
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
         if (has_b16_opsz_override) { out.append(InstructionBuf::kb16_opsz_prefix); }
@@ -436,7 +432,6 @@ struct Emitter<OpEn::I> {
 
         out.append_opcode(opcode);
 
-        out.disp_or_imm_offset_[1] = out.curr_offset();
         out.append(op_list[1].as<Imm>().bw_, u64(op_list[1].as<Imm>().value_));
 
         return out;
@@ -491,6 +486,10 @@ template <X86IK instruction_kind, typename... InstrExpr>
 struct InstrExprList {
     static constexpr X86IK ik = instruction_kind;
 
+    // TODO(miloudi): Instead of returning true and or false return a tuple called MatchInfo containing
+    // the rex flags and the op size override.
+    // X86Ops should be passed by Refs. and when emitting the instruction All x86Ops should contain the patch offset
+    // so that we know how to patch the op should it need to be patched.
     static constexpr auto match(X86Instruction::OpListRef op_list) -> i1 {
         return ((InstrExpr::pattern::match(op_list)) or ...);
     }
@@ -498,7 +497,8 @@ struct InstrExprList {
     static constexpr auto emit(X86Instruction::OpListRef op_list) -> InstructionBuf {
         InstructionBuf out{};
 
-        auto found_match = [&]<typename InstructionExpr>() {
+        // Return a boolean to short-circuit the fold operation.
+        auto found_match = [&]<typename InstructionExpr>() -> i1 {
             if (InstructionExpr::pattern::match(op_list)) {
                 out = InstructionExpr::emitter::emit(
                     InstructionExpr::opcode::value(),
@@ -511,6 +511,8 @@ struct InstrExprList {
             return false;
         };
 
+        // For short-circuiting. Folding using the comma operator will execute all of 
+        // the function calls even though we already found what we needed.
         std::ignore = (found_match.template operator()<InstrExpr>() or ...);
         return out;
     }

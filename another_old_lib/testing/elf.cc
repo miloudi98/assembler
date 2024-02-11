@@ -24,13 +24,13 @@ auto str_of_bw_with_gas_syntax(fiska::x86::BW w) -> StrRef {
 }
 
 auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
-    using enum fiska::x86::RI;
     using enum fiska::x86::BW;
+    using fiska::x86::RI;
 
     switch (r.id_) {
-    case Invalid: unreachable();
+    case RI::Invalid: unreachable();
 
-    case Rax: {
+    case RI::Rax: {
         switch (r.bw_) {
         case B8: return "al";
         case B16: return "ax";
@@ -39,7 +39,7 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch
     }
-    case Rcx: {
+    case RI::Rcx: {
         switch (r.bw_) {
         case B8: return "cl";
         case B16: return "cx";
@@ -48,7 +48,7 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rdx: {
+    case RI::Rdx: {
         switch (r.bw_) {
         case B8: return "dl";
         case B16: return "dx";
@@ -57,7 +57,7 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rbx: {
+    case RI::Rbx: {
         switch (r.bw_) {
         case B8: return "bl";
         case B16: return "bx";
@@ -66,7 +66,7 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rsp: {
+    case RI::Rsp: {
         switch (r.bw_) {
         case B8: return "spl";
         case B16: return "sp";
@@ -75,13 +75,13 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rah: {
+    case RI::Rah: {
         switch (r.bw_) {
         case B8: return "ah";
         default: unreachable();
         } // switch
     }
-    case Rbp: {
+    case RI::Rbp: {
         switch (r.bw_) {
         case B8: return "bpl";
         case B16: return "bp";
@@ -90,13 +90,13 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rch: {
+    case RI::Rch: {
         switch (r.bw_) {
         case B8: return "ch";
         default: unreachable();
         } // switch
     }
-    case Rip: {
+    case RI::Rip: {
         switch (r.bw_) {
         case B16: return "ip";
         case B32: return "eip";
@@ -104,7 +104,7 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rsi: {
+    case RI::Rsi: {
         switch (r.bw_) {
         case B8: return "sil";
         case B16: return "si";
@@ -113,13 +113,13 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rdh: {
+    case RI::Rdh: {
         switch (r.bw_) {
         case B8: return "dh";
         default: unreachable();
         }
     }
-    case Rdi: {
+    case RI::Rdi: {
         switch (r.bw_) {
         case B8: return "dil";
         case B16: return "di";
@@ -128,21 +128,21 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
         default: unreachable();
         } // switch 
     }
-    case Rbh: {
+    case RI::Rbh: {
         switch (r.bw_) {
         case B8: return "bh";
         default: unreachable();
         } // switch
     }
-    case R8:
-    case R9: 
-    case R10: 
-    case R11:
-    case R12: 
-    case R13:
-    case R14:
-    case R15: {
-        Str ret = fmt::format("r{}", 8 + (+r.id_) - (+R8));
+    case RI::R8:
+    case RI::R9: 
+    case RI::R10: 
+    case RI::R11:
+    case RI::R12: 
+    case RI::R13:
+    case RI::R14:
+    case RI::R15: {
+        Str ret = fmt::format("r{}", 8 + (+r.id_) - (+RI::R8));
         switch (r.bw_) {
         case B8:
             ret += "b";
@@ -160,48 +160,48 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
 
         return ret;
     }
-    case Es: return "es";
-    case Cs: return "cs";
-    case Ss: return "ss";
-    case Ds: return "ds";
-    case Fs: return "fs";
-    case Gs: return "gs";
+    case RI::Es: return "es";
+    case RI::Cs: return "cs";
+    case RI::Ss: return "ss";
+    case RI::Ds: return "ds";
+    case RI::Fs: return "fs";
+    case RI::Gs: return "gs";
 
-    case Cr0:
-    case Cr1:
-    case Cr2:
-    case Cr3:
-    case Cr4:
-    case Cr5:
-    case Cr6:
-    case Cr7:
-    case Cr8:
-    case Cr9:
-    case Cr10:
-    case Cr11:
-    case Cr12:
-    case Cr13:
-    case Cr14:
-    case Cr15: {
-        return fmt::format("cr{}", (+r.id_) - (+Cr0));
+    case RI::Cr0:
+    case RI::Cr1:
+    case RI::Cr2:
+    case RI::Cr3:
+    case RI::Cr4:
+    case RI::Cr5:
+    case RI::Cr6:
+    case RI::Cr7:
+    case RI::Cr8:
+    case RI::Cr9:
+    case RI::Cr10:
+    case RI::Cr11:
+    case RI::Cr12:
+    case RI::Cr13:
+    case RI::Cr14:
+    case RI::Cr15: {
+        return fmt::format("cr{}", (+r.id_) - (+RI::Cr0));
     }
-    case Dbg0:
-    case Dbg1:
-    case Dbg2:
-    case Dbg3:
-    case Dbg4:
-    case Dbg5:
-    case Dbg6:
-    case Dbg7:
-    case Dbg8:
-    case Dbg9:
-    case Dbg10:
-    case Dbg11:
-    case Dbg12:
-    case Dbg13:
-    case Dbg14:
-    case Dbg15: {
-        return fmt::format("dr{}", (+r.id_) - (+Dbg0));
+    case RI::Dbg0:
+    case RI::Dbg1:
+    case RI::Dbg2:
+    case RI::Dbg3:
+    case RI::Dbg4:
+    case RI::Dbg5:
+    case RI::Dbg6:
+    case RI::Dbg7:
+    case RI::Dbg8:
+    case RI::Dbg9:
+    case RI::Dbg10:
+    case RI::Dbg11:
+    case RI::Dbg12:
+    case RI::Dbg13:
+    case RI::Dbg14:
+    case RI::Dbg15: {
+        return fmt::format("dr{}", (+r.id_) - (+RI::Dbg0));
     }
     } // switch
     unreachable();
@@ -212,6 +212,7 @@ auto str_of_reg_with_gas_syntax(fiska::x86::Reg r) -> Str {
 // This function breaks the strict aliasing rule, but it's perfectly 
 // safe to do it since we're only doing read operations.
 auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<InstructionBuf> {
+    // TODO(miloudi): This is UB btw.
     auto header = reinterpret_cast<const Elf64_Ehdr*>(elf.data());
     auto sht = reinterpret_cast<const Elf64_Shdr*>(elf.data() + header->e_shoff);
     const char* shstrtab = elf.data() + sht[header->e_shstrndx].sh_offset;
@@ -263,6 +264,7 @@ auto fiska::x86::elf::read_symbols_from_elf(StrRef elf) -> Vec<InstructionBuf> {
 
 auto fiska::x86::elf::str_of_instruction_kind_with_gas_syntax(X86IK kind) -> StrRef {
     switch (kind) {
+    case X86IK::Invalid: unreachable("Invalid instruction encountered");
     case X86IK::Mov: return "mov";
     case X86IK::Add: return "add";
     case X86IK::Adc: return "adc";
@@ -271,6 +273,7 @@ auto fiska::x86::elf::str_of_instruction_kind_with_gas_syntax(X86IK kind) -> Str
     unreachable();
 }
 
+// TODO(miloudi): This is wrong. You're assuming all instructions have 2 operands. Come on man, you can do better than this.
 auto fiska::x86::elf::str_of_instruction_with_gas_syntax(X86Instruction::Ref instruction) -> Str {
     return fmt::format("{} {}, {}",
         str_of_instruction_kind_with_gas_syntax(instruction.kind_),

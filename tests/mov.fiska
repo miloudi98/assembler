@@ -1,11 +1,28 @@
 let a: @b8 = "this is a string";
+let len_a: @b8 = [255];
 //let len_a: @b8 = [255];
 //let b: @b64 = [12];
 //let c: @b32 = [1, 2, 3, 4, 5];
 
 
+
+
+
 fn _start {
+    endbr64();
     mov(b32 rax, b32 60);
     mov(b64 rdi, b64 231);
+    // 32-bit displacement + 64-bit immediate.
+    mov(@b64 [rax][][] + disp, b64 disp);
+    // 64-bit memory offset.
+    mov(b64 rax, @b64 disp);
+    ret();
+}
+
+fn other_proc {
+    sub(b64 rsp, b8 8);
+    mov(b64 rsp, b64 rbp);
+    mov(rsp, rbp);
     syscall();
+    ret();
 }

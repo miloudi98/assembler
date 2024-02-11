@@ -154,61 +154,24 @@ struct Elf64_Rela {
     u32 r_addend;
 };
 
-struct StringTable {
-    Vec<char> storage_ = {0};
+struct ELFBuilder {
+    Elf64_Ehdr ehdr_{};
+    Vec<ByteVec> scts_{};
+    Vec<Elf64_Shdr> hdrs_{};
+    Vec<Elf64_Sym> syms_{};
+    Vec<Elf64_Rela> rels_{};
+    Vec<StrRef> sct_names_{};
 
-    auto save(StrRef str) -> u32;
-    auto find(StrRef str) -> u32;
-    auto get(u32 offset) -> StrRef;
-    auto data() -> const char*;
-    auto size() -> u64;
+    auto find_or_create_ndx(StrRef sct_name) -> u16;
+    auto strtab_find(StrRef sct_name, StrRef str) -> u32; 
+    auto strtab_find_or_add(StrRef sct_name, StrRef str) -> u32;
+    auto sct(StrRef sct_name) -> ByteVec& { return scts_[find_or_create_ndx(sct_name)]; }
+    auto hdr(StrRef sct_name) -> Elf64_Shdr& { return hdrs_[find_or_create_ndx(sct_name)]; }
+    //auto build_syms(fe::Expr::ListRef ast) -> void;
+    //auto lower_x86_inst_expr(fe::X86InstructionExpr::Ref x86_inst_expr) -> X86Instruction;
+
 };
 
-enum struct ElfSection : u8 {
-    Null = 0,
-    Text = 1,
-    Data = 2,
-
-    NSections = 3,
-};
-static_assert(+ElfSection::NSections == 3);
-
-struct IRSymbol {
-    Str name_{};
-    ByteVec data_{};
-    ElfSection sec_{};
-    u32 sec_offset_{};
-    u32 symtab_idx_{};
-};
-
-struct IRReloc {
-    ElfSection sec_{};
-    u32 sym_offset_{};
-    BW rel_sz_{};
-    Rc<IRSymbol> sym_{};
-};
-
-struct IRBuilder {
-    utils::StringMap<ElfSection> symtab_{};
-    Vec<ByteVec> sections_(+ElfSection::NSections);
-    Vec<IRSymbol> ir_symtab_{};
-    
-    auto gen_ir() -> void;
-    auto lower_x86_operand_list(const Vec<X86OpExpr*>& expr) -> X86Instruction;
-};
-
-// Elf Section.
-enum struct ES : u16 {
-    Null = 0,
-    ShStrTab = 1,
-    StrTab = 2,
-    SymTab = 3,
-    Text = 4,
-
-    NSections = 5
-};
-
-auto codegen(fe::Expr::ListRef ast, const fs::path& out_path) -> void;
 
 }  // namespace fiska::x86::codegen
 

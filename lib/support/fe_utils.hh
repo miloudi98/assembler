@@ -1,9 +1,9 @@
-#ifndef __X86_ASSEMBLER_LIB_FRONT_END_SUPPORT_HH__
-#define __X86_ASSEMBLER_LIB_FRONT_END_SUPPORT_HH__
+#ifndef __X86_ASSEMBLER_LIB_SUPPORT_FE_UTILS_HH__
+#define __X86_ASSEMBLER_LIB_SUPPORT_FE_UTILS_HH__
 
-#include "lib/core.hh"
+#include "lib/support/core.hh"
 
-namespace fiska::fe {
+namespace fiska::x86 {
 
 struct File {
     u16 fid_{};
@@ -36,6 +36,6 @@ struct StringInterner {
     ~StringInterner(); 
 };
 
-} // namespace fiska::fe
+} // namespace fiska::x86
 
-#endif // __X86_ASSEMBLER_LIB_FRONT_END_SUPPORT_HH__
+#endif // __X86_ASSEMBLER_LIB_SUPPORT_FE_UTILS_HH__

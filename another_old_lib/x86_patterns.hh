@@ -87,6 +87,7 @@ struct r<kind> : X86OpClass {
             and op.as<Reg>().kind_ == kind;
     }
 
+    // TODO(miloudi): Move the instance generation elsewhere. It really doesn't belong here.
     static auto instances() -> X86Op::List {
         X86Op::List ret;
         

@@ -5,10 +5,11 @@
 #include <random>
 
 namespace fiska::x86 {
-// TODO(miloudi): Make fmt able to print the enums defined in this file.
 
-// X86 Instruction Kind.
-enum struct X86IK {
+// X86 Instruction mnemonic.
+enum struct X86Mnemonic {
+    Invalid,
+
     Mov,
     Add,
     Adc,
@@ -16,7 +17,9 @@ enum struct X86IK {
 };
 
 // Bit width.
-enum struct BW : u16 {
+enum struct BW : i8 {
+    Invalid = -1,
+
     B0 = 0,
     B8 = 8,
     B16 = 16,
@@ -26,7 +29,7 @@ enum struct BW : u16 {
 };
 
 // Register Id.
-enum struct RI : u16 {
+enum struct RI : u8 {
     Invalid,
 
     Rax,  Rcx,  Rdx,  
@@ -65,7 +68,9 @@ enum struct RI : u16 {
 };
 
 // Register kind.
-enum struct RK {
+enum struct RK : i8 {
+    Invalid, 
+
     Ip,
     Gp,
     Seg,
@@ -75,6 +80,8 @@ enum struct RK {
 
 // Memory reference kind.
 enum struct MK {
+    Invalid,
+
     BaseDisp,
     BaseIndexDisp,
     IndexDisp,
@@ -82,8 +89,8 @@ enum struct MK {
 };
 
 // Memory reference index scale.
-enum struct MemIndexScale : u8 {
-    Invalid = 4,
+enum struct MemIndexScale : i8 {
+    Invalid = -1,
 
     One = 0,
     Two = 1,
@@ -101,6 +108,26 @@ union Sib {
     u8 raw;
 };
 
+
+//struct Sib {
+//    u8 raw{};
+//
+//    auto base(u8 val) -> Sib& {
+//        raw |= base;
+//        return *this;
+//    }
+//
+//    auto index(u8 val) -> Sib& {
+//        raw |= val << 3;
+//        return *this;
+//    }
+//    
+//    auto scale(u8 val) -> Sib& {
+//        raw |= val << 6;
+//        return *this;
+//    }
+//};
+
 union ModRM {
     struct {
         u8 rm: 3{};
@@ -109,6 +136,23 @@ union ModRM {
     };
     u8 raw;
 };
+
+//struct Rex {
+//    // Mod_Rm::r/m or Sib::Base extension or opcode extension.
+//    u8 b: 1{};
+//    // Sib::Index extension.
+//    u8 x: 1{};
+//    // Mod_Rm::reg extension.
+//    u8 r: 1{};
+//    // Operand size override.
+//    u8 w: 1{};
+//    // Reserved.
+//    u8 mod: 4 {0b0100}; 
+//    
+//    auto raw() const -> u8 {
+//        return (mod << 4) | (w << 3) | (r << 2) | (x << 1) | b;
+//    }
+//};
 
 union Rex {
     struct {
@@ -128,7 +172,6 @@ union Rex {
     };
     u16 raw;
 };
-static_assert(sizeof(Rex) == 2);
 
 
 struct Moffs {
@@ -168,7 +211,34 @@ struct Reg {
 };
 
 struct Mem {
+    enum struct Scale : i8 {
+        Invalid = -1,
+        One = 0,
+        Two = 1,
+        Four = 2,
+        Eight = 3
+    };
+
+    BW bw_ = BW::Invalid;
+    RI brid_ = RI::Invalid;
+    RI irid_ = RI::Invalid;
+    Scale scale_ = Scale::Invalid;
+    i64 disp_{};
+
+    auto disp_size() const -> BW;
+    auto kind() const -> MK;
+    auto mod() const -> u8;
+    auto sib() const -> u8;
+};
+
+struct Mem {
     BW bw_{};
+    // TODO(miloudi): This is super bad. We don't need the entire register here.
+    //RI breg_id_ = RI::Invalid;
+    //RI ireg_id_ = RI::Invalid;
+    //MemIndexScale = MemIndexScale::Invalid;
+    /// This is simply very bad.
+    /// Having optionals is so bad man. Try to avoid them at any cost.
     Opt<Reg> base_reg_{};
     Opt<Reg> index_reg_{};
     Opt<MemIndexScale> scale_{};
@@ -195,81 +265,85 @@ public:
     // We need this mechanism to make sure all members are correctly initialized.
     template <typename... Args>
     static auto make(Args&&... args) -> Mem {
-        using enum BW;
-        using enum RI;
+        //using enum BW;
+        //using enum RI;
 
         Mem mem{std::forward<Args>(args)...};
 
-        // set the kind.
-        if (mem.base_reg_ and mem.index_reg_) {
-            mem.kind_ = MK::BaseIndexDisp;
-        } else if (not mem.base_reg_ and mem.index_reg_) {
-            mem.kind_ = MK::IndexDisp;
-        } else if (mem.base_reg_ and not mem.index_reg_) {
-            mem.kind_ = MK::BaseDisp;
-        } else {
-            mem.kind_ = MK::DispOnly;
-        }
-
-        // set the displacement bit width.
-        if (mem.base_reg_ and mem.base_reg_->id_ == Rip) {
-            mem.disp_bw_ = B32;
-        }
-        
-        if (::is<MK::IndexDisp, MK::DispOnly>(mem.kind_)) {
-            mem.disp_bw_ = B32;
-        }
-
-        if (mem.base_reg_ and ::is<Rbp, R13>(mem.base_reg_->id_)) {
-            mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
-        }
-
-        if (mem.disp_ and mem.disp_bw_ == B0) {
-            mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
-        }
-
-        // set the mod.
-        if (::is<MK::DispOnly, MK::IndexDisp>(mem.kind_) 
-                or mem.disp_bw_ == B0 
-                or (mem.base_reg_ and mem.base_reg_->id_ == Rip)) {
-            mem.mod_ = kmod_mem;
-        } else {
-            mem.mod_ = utils::fits_in_b8(mem.disp_) ? kmod_mem_disp8 : kmod_mem_disp32;
-        }
-
-        // set the sib.
-        // This is the only case where we don't need a sib byte.
-        if (not (mem.kind_ == MK::BaseDisp and not ::is<Rsp, R12>(mem.base_reg_->id_))) {
-            Sib sib{};
-            switch (mem.kind_) {
-            case MK::BaseDisp: {
-                sib.base = mem.base_reg_->idx_;
-                sib.index = ksib_no_index_reg;
-                break;
-            }
-            case MK::BaseIndexDisp: {
-                sib.base = mem.base_reg_->idx_;
-                sib.index = mem.index_reg_->idx_;
-                sib.scale = +mem.scale_.value();
-                break;
-            }
-            case MK::IndexDisp: {
-                sib.base = ksib_no_base_reg;
-                sib.index = mem.index_reg_->idx_;
-                sib.scale = +mem.scale_.value();
-                break;
-            }
-            case MK::DispOnly: {
-                sib.base = ksib_no_base_reg;
-                sib.index = ksib_no_index_reg;
-                break;
-            }
-            } // switch
-
-            mem.sib_ = sib.raw;
-        }
-
         return mem;
+
+        //// set the kind.
+        //if (mem.base_reg_ and mem.index_reg_) {
+        //    mem.kind_ = MK::BaseIndexDisp;
+        //} else if (not mem.base_reg_ and mem.index_reg_) {
+        //    mem.kind_ = MK::IndexDisp;
+        //} else if (mem.base_reg_ and not mem.index_reg_) {
+        //    mem.kind_ = MK::BaseDisp;
+        //} else {
+        //    mem.kind_ = MK::DispOnly;
+        //}
+
+        //// set the displacement bit width.
+        //if (mem.base_reg_ and mem.base_reg_->id_ == Rip) {
+        //    mem.disp_bw_ = B32;
+        //}
+        //
+        //// TODO(miloudi): Change the name of |::is| to something like |isa| to avoid conflicting with
+        //// X86Op's function.
+        //if (::is<MK::IndexDisp, MK::DispOnly>(mem.kind_)) {
+        //    mem.disp_bw_ = B32;
+        //}
+
+        //if (mem.base_reg_ and ::is<Rbp, R13>(mem.base_reg_->id_)) {
+        //    mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
+        //}
+
+        //if (mem.disp_ and mem.disp_bw_ == B0) {
+        //    mem.disp_bw_ = utils::fits_in_b8(mem.disp_) ? B8 : B32;
+        //}
+
+        //// set the mod.
+        //if (::is<MK::DispOnly, MK::IndexDisp>(mem.kind_) 
+        //        or mem.disp_bw_ == B0 
+        //        or (mem.base_reg_ and mem.base_reg_->id_ == Rip)) {
+        //    mem.mod_ = kmod_mem;
+        //} else {
+        //    mem.mod_ = utils::fits_in_b8(mem.disp_) ? kmod_mem_disp8 : kmod_mem_disp32;
+        //}
+
+        //// set the sib.
+        //// This is the only case where we don't need a sib byte.
+        //if (not (mem.kind_ == MK::BaseDisp and not ::is<Rsp, R12>(mem.base_reg_->id_))) {
+        //    Sib sib{};
+        //    switch (mem.kind_) {
+        //    case MK::BaseDisp: {
+        //        sib.base = mem.base_reg_->idx_;
+        //        sib.index = ksib_no_index_reg;
+        //        break;
+        //    }
+        //    case MK::BaseIndexDisp: {
+        //        sib.base = mem.base_reg_->idx_;
+        //        sib.index = mem.index_reg_->idx_;
+        //        sib.scale = +mem.scale_.value();
+        //        break;
+        //    }
+        //    case MK::IndexDisp: {
+        //        sib.base = ksib_no_base_reg;
+        //        sib.index = mem.index_reg_->idx_;
+        //        sib.scale = +mem.scale_.value();
+        //        break;
+        //    }
+        //    case MK::DispOnly: {
+        //        sib.base = ksib_no_base_reg;
+        //        sib.index = ksib_no_index_reg;
+        //        break;
+        //    }
+        //    } // switch
+
+        //    mem.sib_ = sib.raw;
+        //}
+
+        //return mem;
     }
     GCC_DIAG_IGNORE_POP();
 };
@@ -364,6 +438,7 @@ struct X86Instruction {
 
     X86IK kind_{};
     OpList op_list_{};
+    i1 patchable_{};
 };
 
 // Assembler context.
