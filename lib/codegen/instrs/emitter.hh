@@ -5,9 +5,9 @@
 #include "lib/codegen/ir.hh"
 #include "lib/codegen/instrs/shard0.hh"
 
-namespace fiska::x86::codegen::instrs {
+namespace fiska::x86::codegen::instrs::emitter {
 
-auto emit(IRX86Instr::Ref ops) -> ByteVec;
+auto emit(IRX86Instr::Ref i) -> ByteVec;
 
 }  // namespace fiska::x86::instrs
 

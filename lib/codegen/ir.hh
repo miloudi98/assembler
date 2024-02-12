@@ -54,10 +54,10 @@ struct IRMoffs {
 };
 
 struct RelocInfo {
-    StrRef reloc_sym_name_;
+    StrRef sym_name_;
     i1 must_reloc_{};
-    u8 reloc_type_{};
-    u8 instruction_offset_{};
+    u8 type_{};
+    u8 instr_offset_{};
 };
 
 template <typename T>
@@ -88,6 +88,7 @@ struct IRX86Op {
     Inner inner_{};
     mutable RelocInfo reloc_info_{};
 
+    IRX86Op() {}
     /*implicit*/IRX86Op(const Inner& i) : inner_(i) {}
     /*implicit*/IRX86Op(const Inner& i, const RelocInfo& ri) :
         inner_(i), reloc_info_(ri) {}
@@ -123,6 +124,7 @@ struct IRX86Instr {
 
     X86Mnemonic mmic_ = X86Mnemonic::Invalid;
     IRX86Op::List ops_;
+    mutable u64 sct_offset_{};
 };
 
 struct IRProc {
@@ -135,13 +137,39 @@ struct IRVar {
     ByteVec data_;
 };
 
+struct IRSymbol {
+    using Inner = std::variant<
+        std::monostate,
+        IRProc,
+        IRVar
+    >;
+
+    enum struct Kind {
+        Invalid,
+        Proc,
+        Var,
+    };
+
+    Inner inner_{};
+    StrRef section_;
+    StrRef name_;
+    Kind kind_;
+
+    [[nodiscard]] auto as_proc() -> IRProc& { return std::get<IRProc>(inner_); }
+    [[nodiscard]] auto as_var() -> IRVar& { return std::get<IRVar>(inner_); }
+};
+
 struct IRBuilder {
-    using IRObject = std::variant<IRProc, IRVar>;
+    //using IRObject = std::variant<IRProc, IRVar>;
+    using IRObject = IRProc;
 
     Vec<IRObject> ir_objects_;
+    Vec<IRSymbol> ir_syms_;
+    // TODO: You don't need this at all.
     utils::StringMap<Str> sym_sct_info_;
 
     auto lower_x86_instr_expr(fe::X86InstrExpr* x86_instr_expr) -> IRX86Instr;
+    auto lower_expr(fe::Expr* expr) -> IRX86Op;
     auto link_sym_name_to_section(StrRef sym_name, StrRef sct_name) -> void;
     auto build(fe::Expr::ListRef ast_);
 };

@@ -1,7 +1,7 @@
 #include "lib/codegen/instrs/emitter.hh"
 #include "lib/support/core.hh"
 
-auto fiska::x86::codegen::instrs::emit(IRX86Instr::Ref i) -> ByteVec {
+auto fiska::x86::codegen::instrs::emitter::emit(IRX86Instr::Ref i) -> ByteVec {
 
 #define CASE(mmic) case X86Mnemonic::mmic: return mmic::emit(i.ops_)
 

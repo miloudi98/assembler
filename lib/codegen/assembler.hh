@@ -102,6 +102,8 @@ struct InstrBuf {
     using Storage = ByteVec;
     Storage storage_ = Storage(IRX86Op::kMaxInstrLength, 0);
 
+    auto curr_off() -> u8 { return u8(storage_.size()); }
+
     auto add(u64 qword) -> InstrBuf& {
         if (std::bit_width(qword) <= 8) {
             add(BW::B8, qword);
@@ -229,6 +231,7 @@ struct Emitter<OpEn::MR> {
         }
 
         if (rm.m() and rm.as_m().disp_bw() != BW::Invalid) {
+            rm.reloc_info_.instr_offset_ = buf.curr_off();
             buf.add(rm.as_m().disp_bw(), u64(rm.as_m().disp_));
         }
 
@@ -266,8 +269,9 @@ struct Emitter<OpEn::FD> {
             buf.add(BW::B8, rex.raw());
         }
 
-        buf.add(opcode)
-           .add(BW::B64, u64(ops[1].as_mo().addr_));
+        buf.add(opcode);
+        ops[1].reloc_info_.instr_offset_ = buf.curr_off();
+        buf.add(BW::B64, u64(ops[1].as_mo().addr_));
 
         return buf.storage_;
     }
@@ -288,14 +292,14 @@ struct Emitter<OpEn::OI> {
     static auto emit(u64 opcode, IRX86Op::ListRef ops, OpSz opsz) -> ByteVec {
         assert(ops.size() == 2 and (ops[0].r() and ops[1].i()));
 
-        const IRReg& reg = ops[0].as_r();
-        const IRImm& imm = ops[1].as_i();
+        IRX86Op::Ref reg = ops[0];
+        IRX86Op::Ref imm = ops[1];
 
         Rex rex {
-            .b = reg.need_ext(),
+            .b = reg.as_r().need_ext(),
             .w = opsz == OpSz::B64 
         };
-        i1 rex_required = rex.has_set_bits() or pats::byte_regs_requiring_rex::match({reg});
+        i1 rex_required = rex.has_set_bits() or pats::byte_regs_requiring_rex::match(reg);
 
         // Add the register index in the opcode. 
         // It is a bit awkward since we chose to pack all the bytes of an 
@@ -320,8 +324,9 @@ struct Emitter<OpEn::OI> {
             buf.add(BW::B8, rex.raw());
         }
 
-        buf.add(opcode)
-           .add(imm.bw_, u64(imm.value_));
+        buf.add(opcode);
+        imm.reloc_info_.instr_offset_ = buf.curr_off();
+        buf.add(imm.as_i().bw_, u64(imm.as_i().value_));
 
         return buf.storage_;
     }
@@ -368,9 +373,11 @@ struct Emitter<OpEn::MI, slash_digit> {
         }
 
         if (rm.m() and rm.as_m().disp_bw() != BW::Invalid) {
+            rm.reloc_info_.instr_offset_ = buf.curr_off();
             buf.add(rm.as_m().disp_bw(), u64(rm.as_m().disp_));
         }
         // Immediate
+        ops[1].reloc_info_.instr_offset_ = buf.curr_off();
         buf.add(ops[1].as_i().bw_, u64(ops[1].as_i().value_));
         return buf.storage_;
     }
@@ -395,10 +402,10 @@ struct Emitter<OpEn::I> {
             buf.add(BW::B8, rex.raw());
         }
 
-        return buf
-            .add(opcode)
-            .add(ops[1].as_i().bw_, u64(ops[1].as_i().value_))
-            .storage_;
+        buf.add(opcode);
+        ops[1].reloc_info_.instr_offset_ = buf.curr_off();
+        buf.add(ops[1].as_i().bw_, u64(ops[1].as_i().value_));
+        return buf.storage_;
     }
 };
 

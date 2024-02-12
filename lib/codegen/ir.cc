@@ -261,9 +261,15 @@ auto fiska::x86::codegen::IRBuilder::build(fe::Expr::ListRef ast_) {
         default: unreachable("Sorry! Unsupported top level expression.");
 
         case fe::Expr::Kind::Proc: {
+            auto proc = static_cast<fe::ProcExpr*>(expr);
             IRProc ir_proc{};
 
-            auto proc = static_cast<fe::ProcExpr*>(expr);
+            IRSymbol* ir_sym = &ir_syms_.emplace_back();
+            ir_sym->kind_ = IRSymbol::Kind::Proc;
+            ir_sym->name_ = proc->name_; 
+            ir_sym->section_ = /*proc->section_;*/ ".text";
+            ir_sym->inner_ = IRProc{};
+
             ir_proc.name_ = proc->name_;
 
             ir_proc.body_.resize(proc->body_.size());
@@ -282,119 +288,101 @@ auto fiska::x86::codegen::IRBuilder::build(fe::Expr::ListRef ast_) {
     }
 }
 
+auto fiska::x86::codegen::IRBuilder::lower_expr(fe::Expr* expr) -> IRX86Op {
+    switch (expr->kind_) {
+    default: unreachable("Unsupported expr.");
+
+    case fe::Expr::Kind::RegLit: {
+        auto reg = static_cast<fe::RegLitExpr*>(expr);
+        IRReg ir_reg {
+            .bw_ = reg->bw_,
+            .id_ = reg->id_
+        };
+        return IRX86Op(ir_reg);
+    }
+    case fe::Expr::Kind::MemRefLit: {
+        auto mem = static_cast<fe::MemRefLitExpr*>(expr);
+        IRMem ir_mem {
+            .bw_ = mem->bw_,
+            .brid_ = mem->brid_,
+            .irid_ = mem->irid_,
+            .scale_ = IRMem::Scale(std::bit_width(u8(mem->scale_)) - 1)
+        };
+        return IRX86Op(ir_mem);
+    }
+    case fe::Expr::Kind::ImmLit: {
+        auto imm = static_cast<fe::ImmLitExpr*>(expr);
+        assert((isa<fe::Expr::Kind::Label, fe::Expr::Kind::IntLit>(imm->value_->kind_)));
+
+        RelocInfo reloc_info{};
+        IRImm ir_imm {
+            .bw_ = imm->bw_,
+            .value_ = 0
+        };
+
+        if (imm->value_->kind_ == fe::Expr::Kind::Label) {
+            reloc_info.sym_name_ = static_cast<fe::LabelExpr*>(imm->value_)->name_;
+            reloc_info.must_reloc_ = true;
+        } else {
+            ir_imm.value_ = static_cast<fe::IntLitExpr*>(expr)->value_;
+        }
+
+        return IRX86Op(ir_imm, reloc_info);
+    }
+    case fe::Expr::Kind::MoffsLit: {
+        auto moffs = static_cast<fe::MoffsLitExpr*>(expr);
+        assert((isa<fe::Expr::Kind::Label, fe::Expr::Kind::IntLit>(moffs->addr_->kind_)));
+
+        RelocInfo reloc_info{};
+        IRMoffs ir_moffs {
+            .bw_ = moffs->bw_,
+            .addr_ = 0
+        };
+
+        if (moffs->addr_->kind_ == fe::Expr::Kind::Label) {
+            reloc_info.sym_name_ = static_cast<fe::LabelExpr*>(moffs->addr_)->name_;
+            reloc_info.must_reloc_ = true;
+        } else {
+            ir_moffs.addr_ = static_cast<fe::IntLitExpr*>(moffs->addr_)->value_;
+        }
+
+        return IRX86Op(ir_moffs, reloc_info);
+    }
+    case fe::Expr::Kind::BinaryOp: {
+        auto binary = static_cast<fe::BinaryOpExpr*>(expr);
+
+        assert(binary->lhs_->kind_ == fe::Expr::Kind::MemRefLit);
+        assert((isa<fe::Expr::Kind::IntLit, fe::Expr::Kind::Label>(binary->rhs_->kind_)));
+
+        auto mem = static_cast<fe::MemRefLitExpr*>(binary->lhs_);
+
+        RelocInfo reloc_info{};
+        IRMem ir_mem = lower_expr(mem).as_m();
+
+        if (binary->rhs_->kind_ == fe::Expr::Kind::Label) {
+            reloc_info.sym_name_ = static_cast<fe::LabelExpr*>(binary->rhs_)->name_;
+            reloc_info.must_reloc_ = true;
+        } else {
+            i64 disp_unchecked = static_cast<fe::IntLitExpr*>(binary->rhs_)->value_;
+            assert(utils::fits_in_b32(disp_unchecked));
+
+            ir_mem.disp_ = i32(disp_unchecked);
+        }
+        return IRX86Op(ir_mem, reloc_info);
+    }
+    } // switch
+    unreachable();
+}
+
 auto fiska::x86::codegen::IRBuilder::lower_x86_instr_expr(fe::X86InstrExpr* x86_instr_expr) -> IRX86Instr {
     IRX86Instr ir_x86_instr {
         .mmic_ = x86_instr_expr->mmic_,
         .ops_ = {}
     };
 
+    ir_x86_instr.ops_.resize(x86_instr_expr->ops_.size());
     for (fe::Expr* op : x86_instr_expr->ops_) {
-        switch (op->kind_) {
-        default: unreachable("Unsupported expr.");
-
-        case fe::Expr::Kind::RegLit: {
-            auto reg = static_cast<fe::RegLitExpr*>(op);
-            IRReg ir_reg {
-                .bw_ = reg->bw_,
-                .id_ = reg->id_
-            };
-
-            ir_x86_instr.ops_.push_back({ ir_reg });
-            break;
-        }
-        case fe::Expr::Kind::MemRefLit: {
-            auto mem = static_cast<fe::MemRefLitExpr*>(op);
-            IRMem ir_mem {
-                .bw_ = mem->bw_,
-                .brid_ = mem->brid_,
-                .irid_ = mem->irid_,
-                .scale_ = IRMem::Scale(std::bit_width(u8(mem->scale_)) - 1)
-            };
-
-            ir_x86_instr.ops_.push_back({ ir_mem });
-            break;
-        }
-        case fe::Expr::Kind::ImmLit: {
-            auto imm = static_cast<fe::ImmLitExpr*>(op);
-            IRImm ir_imm {
-                .bw_ = imm->bw_,
-                .value_ = 0
-            };
-
-            if (imm->value_->kind_ == fe::Expr::Kind::Label) {
-                StrRef sym_name = static_cast<fe::LabelExpr*>(imm->value_)->name_;
-                RelocInfo reloc_info {
-                    .reloc_sym_name_ = sym_name,
-                    .must_reloc_ = true,
-                };
-
-                ir_x86_instr.ops_.push_back({ ir_imm, reloc_info });
-
-            } else {
-                assert(imm->value_->kind_ == fe::Expr::Kind::IntLit);
-                ir_imm.value_ = static_cast<fe::IntLitExpr*>(op)->value_;
-                
-                ir_x86_instr.ops_.push_back({ ir_imm });
-            }
-            break;
-        }
-        case fe::Expr::Kind::MoffsLit: {
-            auto moffs = static_cast<fe::MoffsLitExpr*>(op);
-            IRMoffs ir_moffs {
-                .bw_ = moffs->bw_,
-                .addr_ = 0
-            };
-
-            if (moffs->addr_->kind_ == fe::Expr::Kind::Label) {
-                StrRef sym_name = static_cast<fe::LabelExpr*>(moffs->addr_)->name_;
-                RelocInfo reloc_info {
-                    .reloc_sym_name_ = sym_name,
-                    .must_reloc_ = true
-                };
-
-                ir_x86_instr.ops_.push_back({ ir_moffs, reloc_info });
-            } else {
-                assert(moffs->addr_->kind_ == fe::Expr::Kind::IntLit);
-                ir_moffs.addr_ = static_cast<fe::IntLitExpr*>(moffs->addr_)->value_;
-
-                ir_x86_instr.ops_.push_back({ ir_moffs });
-            }
-            break;
-        }
-        case fe::Expr::Kind::BinaryOp: {
-            auto binary = static_cast<fe::BinaryOpExpr*>(op);
-
-            assert(binary->lhs_->kind_ == fe::Expr::Kind::MemRefLit);
-            assert((isa<fe::Expr::Kind::IntLit, fe::Expr::Kind::Label>(binary->rhs_->kind_)));
-
-            auto mem = static_cast<fe::MemRefLitExpr*>(binary->lhs_);
-
-            IRMem ir_mem {
-                .bw_ = mem->bw_,
-                .brid_ = mem->brid_,
-                .irid_ = mem->irid_,
-                .scale_ = IRMem::Scale(std::bit_width(u8(mem->scale_)) - 1)
-            };
-
-            if (binary->rhs_->kind_ == fe::Expr::Kind::Label) {
-                StrRef sym_name = static_cast<fe::LabelExpr*>(binary->rhs_)->name_;
-                RelocInfo reloc_info {
-                    .reloc_sym_name_ = sym_name,
-                    .must_reloc_ = true,
-                };
-
-                ir_x86_instr.ops_.push_back({ ir_mem, reloc_info });
-            } else {
-                i64 disp_unchecked = static_cast<fe::IntLitExpr*>(binary->rhs_)->value_;
-                assert(disp_unchecked >= std::numeric_limits<i32>::min() 
-                        and disp_unchecked <= std::numeric_limits<i32>::max());
-                ir_mem.disp_ = i32(disp_unchecked);
-
-                ir_x86_instr.ops_.push_back({ ir_mem });
-            }
-            break;
-        }
-        } // switch
+        ir_x86_instr.ops_.push_back(lower_expr(op));
     }
 
     return ir_x86_instr;

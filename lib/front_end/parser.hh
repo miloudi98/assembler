@@ -31,12 +31,13 @@ struct Expr {
     };
 
     Kind kind_ = Kind::Invalid;
+    Str section_;
 
     Expr(Kind kind) : kind_(kind) {}
     virtual ~Expr() = default;
 
     // Create an expression and bind it to the global context.
-    void* operator new(usz sz, Ctx* ctx);
+    void* operator new(usz sz, Ctx* ctx, StrRef section = "");
     // Disallow creating expressions with no global context.
     void* operator new(usz sz) = delete;
 };
@@ -119,10 +120,16 @@ struct ProcExpr : Expr {
     ProcExpr() : Expr(Expr::Kind::Proc) {}
 };
 
+struct VarExpr : Expr {
+    StrRef name_;
+    Expr* value_;
+};
+
 struct Parser {
     Ctx* ctx_{};
     u16 fid_{};
     TokStream::Iterator tok_stream_it_;
+    Str curr_section_;
 
     explicit Parser(Ctx* ctx, u16 fid);
 
@@ -132,7 +139,10 @@ struct Parser {
     auto peek_tok_kind(i32 idx = 0) -> TK { return peek_tok(idx).kind_; }
     auto peek_tok_str(i32 idx = 0) -> StrRef { return peek_tok(idx).str_; }
 
+    auto parse_top_level_expr() -> Expr*;
+    auto parse_file() -> Expr::List;
     auto parse_proc() -> ProcExpr*;
+    auto parse_var_expr() -> VarExpr*;
     auto parse_x86_instr_expr() -> X86InstrExpr*;
     auto parse_expr(i8 prec = 0) -> Expr*;
     auto perform_constant_folding(Expr*) -> Expr*;
