@@ -24,8 +24,23 @@ struct File {
 
 struct Location {
     u32 pos_{};
-    u32 len_{};
+    u32 len_ = 1;
     u16 fid_{};
+};
+
+namespace fe { struct Ctx; }
+struct ErrorSpan {
+    static constexpr i8 kCtxSize = 3;
+
+    const char* start_{};
+    const char* end_{};
+    const char* ctx_start_{};
+    const char* ctx_end_{};
+    u32 line_ = 1;
+    u32 col_ = 1;
+
+    [[nodiscard]] static auto from(fe::Ctx* ctx, Location loc) -> ErrorSpan;
+    static auto print(ErrorSpan err_span) -> void;
 };
 
 struct StringInterner {

@@ -119,7 +119,17 @@ struct Lexer {
     static const utils::StringMap<BW> bws;
 };
 
-
 }  // namespace fiska::x86::fe
+
+// Support formatting tokens.
+template <>
+struct fmt::formatter<fiska::x86::fe::Tok> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const fiska::x86::fe::Tok& tok, FormatContext& ctx) const -> decltype(ctx.out()) {
+        return fmt::format_to(ctx.out(), "{}", fiska::x86::fe::Lexer::str_of_tk(tok.kind_));
+    }
+};
 
 #endif // __X86_ASSEMBLER_LIB_FRONT_END_LEXER_HH__

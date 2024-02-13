@@ -25,6 +25,9 @@ auto fiska::x86::fe::Parser::tok() -> const Tok& {
 }
 
 auto fiska::x86::fe::Parser::next_tok() -> void {
+    // Return EOF token when we are out of tokens.
+    if (tok_stream_it_ == ctx_->tok_streams_[fid_].end()) { return; }
+
     ++tok_stream_it_;
 }
 
