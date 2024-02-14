@@ -144,7 +144,8 @@ auto fiska::x86::fe::Parser::parse_expr(i8 prec) -> Expr* {
             lhs = imm;
             break;
         }
-        unreachable("Unkown start of an expression.");
+
+        goto invalid_expression;
     }
     case TK::Ident: {
         consume(TK::Ident);
@@ -169,20 +170,32 @@ auto fiska::x86::fe::Parser::parse_expr(i8 prec) -> Expr* {
         lhs = new (ctx_, curr_section_) IntLitExpr(result);
         break;
     }
-    default: unreachable("Unkown start of an expression.");
+    default:
+
+invalid_expression:
+        ErrorSpan::emit(
+            ErrorSpan::from(
+                ctx_,
+                tok().loc_,
+                "Token '{}' does not start a valid expression.",
+                Lexer::str_of_tk(peek_tok_kind())
+            )
+        );
+        break;
+
     } // switch
 
     while (Parser::infix_prec_of_tok_kind(peek_tok_kind()) > prec) {
         TK binop = peek_tok_kind();
-        i8 infix_prec = Parser::infix_prec_of_tok_kind(peek_tok_kind());
+        i8 infix_prec = Parser::infix_prec_of_tok_kind(binop);
         consume(binop);
 
-        Expr* binop_lhs = parse_expr(infix_prec);
-        Expr* binop_rhs = parse_expr(infix_prec);
+        Expr* rhs = parse_expr(infix_prec);
 
-        if (binop_lhs->kind_ == Expr::Kind::IntLit and binop_rhs->kind_ == Expr::Kind::IntLit) {
-            i64 lhs_val = static_cast<IntLitExpr*>(binop_lhs)->value_;
-            i64 rhs_val = static_cast<IntLitExpr*>(binop_rhs)->value_;
+        // TODO: These checks really belong to sema and not the parser.
+        if (lhs->kind_ == Expr::Kind::IntLit and rhs->kind_ == Expr::Kind::IntLit) {
+            i64 lhs_val = static_cast<IntLitExpr*>(lhs)->value_;
+            i64 rhs_val = static_cast<IntLitExpr*>(rhs)->value_;
 
             i64 result = [&] {
                 switch (binop) {
@@ -201,11 +214,11 @@ auto fiska::x86::fe::Parser::parse_expr(i8 prec) -> Expr* {
             break;
         }
 
-        assert((binop_lhs->kind_ == Expr::Kind::MemRefLit 
-                and isa<Expr::Kind::ImmLit, Expr::Kind::Label>(binop_rhs->kind_)),
+        assert((lhs->kind_ == Expr::Kind::MemRefLit 
+                and isa<Expr::Kind::ImmLit, Expr::Kind::Label>(rhs->kind_)),
                 "Invalid binary expression.");
 
-        lhs = new (ctx_, curr_section_) BinaryOpExpr(binop, binop_lhs, binop_rhs);
+        lhs = new (ctx_, curr_section_) BinaryOpExpr(binop, lhs, rhs);
     }
 
     return lhs;
@@ -285,6 +298,5 @@ auto fiska::x86::fe::Parser::parse_top_level_expr() -> Expr* {
     switch (peek_tok_kind()) {
     default: unreachable("Invalid top level expr.");
     case TK::Fn: return parse_proc();
-    case TK::Let: return parse_var_expr();
     } // switch
 }

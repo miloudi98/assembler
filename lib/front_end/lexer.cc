@@ -39,7 +39,7 @@ const utils::StringMap<X86Mnemonic> fiska::x86::fe::Lexer::mnemonics = {
     {"syscall", X86Mnemonic::Syscall},
 };
 
-const utils::StringMap<RI> reg_ids = {
+const utils::StringMap<RI> fiska::x86::fe::Lexer::rids = {
     {"rax", RI::Rax}, {"rcx", RI::Rcx}, {"rdx", RI::Rdx}, {"rbx", RI::Rbx}, {"rsp", RI::Rsp}, {"rbp", RI::Rbp},
     {"rsi", RI::Rsi}, {"rdi", RI::Rdi}, {"rip", RI::Rip}, {"r8", RI::R8}, {"r9", RI::R9}, {"r10", RI::R10},
     {"r11", RI::R11}, {"r12", RI::R12}, {"r13", RI::R13}, {"r14", RI::R14}, {"r15", RI::R15}, {"rah", RI::Rah},
@@ -175,10 +175,9 @@ auto fiska::x86::fe::Lexer::lex_ident(Tok* tok) -> void {
         next_c();
     } while (continues_ident(c_));
 
-    StrRef lxm{ file_start() + tok->loc_.pos_, curr_offset() - tok->loc_.pos_};
-    tok->str_ = lxm;
-    tok->kind_ = keywords.contains(lxm)
-                ? utils::strmap_get(keywords, lxm)
+    tok->str_ = ctx_->str_pool_.save(StrRef{file_start() + tok->loc_.pos_, curr_offset() - tok->loc_.pos_});
+    tok->kind_ = keywords.contains(tok->str_)
+                ? utils::strmap_get(keywords, tok->str_)
                 : TK::Ident;
     tok->loc_.len_ = u32(tok->str_.size());
 }

@@ -1,3 +1,7 @@
+section text {
+
+fn second {}
+
 fn _start {
     mov(@b64 [rax] + disp, b64 disp);
     // 64-bit memory offset.
@@ -8,4 +12,7 @@ fn _start {
     mov(b64 rax, @b64 disp);
     // 64-bit memory offset.
     mov(b64 rax, @b64 disp);
+    mov(b64 rax, b64 .100);
 }
+
+} // section text

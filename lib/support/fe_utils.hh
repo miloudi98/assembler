@@ -28,7 +28,10 @@ struct Location {
     u16 fid_{};
 };
 
-namespace fe { struct Ctx; }
+namespace fe { 
+struct Ctx;
+} // namespace fe
+
 struct ErrorSpan {
     static constexpr i8 kCtxSize = 3;
 
@@ -36,11 +39,23 @@ struct ErrorSpan {
     const char* end_{};
     const char* ctx_start_{};
     const char* ctx_end_{};
+    Str msg_;
     u32 line_ = 1;
     u32 col_ = 1;
 
-    [[nodiscard]] static auto from(fe::Ctx* ctx, Location loc) -> ErrorSpan;
-    static auto print(ErrorSpan err_span) -> void;
+    template <typename... Args>
+    [[nodiscard]] static auto from(
+        fe::Ctx* ctx,
+        Location loc,
+        fmt::format_string<Args...> fmt,
+        Args&&... args
+    ) -> ErrorSpan
+    {
+        return err_span_builder(ctx, loc, fmt::format(fmt, std::forward<Args>(args)...));
+    }
+
+    [[nodiscard]] static auto err_span_builder(fe::Ctx* ctx, Location loc, Str msg) -> ErrorSpan;
+    [[noreturn]] static auto emit(ErrorSpan err_span) -> void;
 };
 
 struct StringInterner {

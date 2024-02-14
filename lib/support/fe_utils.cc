@@ -17,7 +17,12 @@ fiska::x86::StringInterner::~StringInterner() {
 }
 
 GCC_DIAG_IGNORE_PUSH(-Wconversion)
-auto fiska::x86::ErrorSpan::from(fe::Ctx* ctx, Location loc) -> ErrorSpan {
+auto fiska::x86::ErrorSpan::err_span_builder(
+    fe::Ctx* ctx,
+    Location loc,
+    Str msg
+) -> ErrorSpan {
+
     const char* file_start = ctx->files_[loc.fid_]->data();
     const char* file_end = file_start + ctx->files_[loc.fid_]->size();
 
@@ -35,6 +40,7 @@ auto fiska::x86::ErrorSpan::from(fe::Ctx* ctx, Location loc) -> ErrorSpan {
     ErrorSpan err_span {
         .start_ = file_start + loc.pos_,
         .end_ = file_start + loc.pos_ + loc.len_,
+        .msg_ = std::move(msg)
     };
 
     err_span.ctx_start_ = err_span.start_;
@@ -64,7 +70,8 @@ auto fiska::x86::ErrorSpan::from(fe::Ctx* ctx, Location loc) -> ErrorSpan {
 }
 GCC_DIAG_IGNORE_POP();
 
-auto fiska::x86::ErrorSpan::print(ErrorSpan err_span) -> void {
+
+[[noreturn]] auto fiska::x86::ErrorSpan::emit(ErrorSpan err_span) -> void {
     using enum fmt::color;
     using enum fmt::emphasis;
 
@@ -116,14 +123,25 @@ auto fiska::x86::ErrorSpan::print(ErrorSpan err_span) -> void {
     // files end with a newline.
     // https://stackoverflow.com/questions/729692/why-should-text-files-end-with-a-newline.
     if (curr < err_span.ctx_end_) {
-        err_span.line_++;
-        fmt::print("\n");
+        fmt::print("{}", *curr);
     }
     fmt::print("{}{}", sidebar(/*no_line_number=*/true), Str(err_start_off, ' '));
-    for (u64 i = 0; i < err_end_off - err_start_off; ++i) {
-        //fmt::print(fg(cyan) | bold, "\u203e");
-        fmt::print(fg(cyan) | bold, "\u2015");
+    u64 err_mid_off = err_start_off + ((err_end_off - err_start_off) >> 1);
+
+    for (u64 i = err_start_off; i < err_mid_off; ++i) {
+        fmt::print(fg(cyan), "\u2500");
     }
+
+    fmt::print(fg(cyan), "\u252c");
+
+    for (u64 i = err_mid_off + 1; i < err_end_off; ++i) {
+        fmt::print(fg(cyan), "\u2500");
+    }
+
+    // Print the error message.
+    fmt::print("\n{}{}", sidebar(/*no_line_number=*/true), Str(err_start_off + ((err_end_off - err_start_off) >> 1), ' '));
+    fmt::print(fg(cyan), "\u2514\u2500\u2500");
+    fmt::print(fg(white) | bold, " {}", err_span.msg_);
 
     // Print the lines after the error.
     while (curr < err_span.ctx_end_) {
@@ -141,5 +159,8 @@ auto fiska::x86::ErrorSpan::print(ErrorSpan err_span) -> void {
 
     // Done.
     fmt::print("\n");
+
+    // Exit.
+    std::exit(1);
 
 }

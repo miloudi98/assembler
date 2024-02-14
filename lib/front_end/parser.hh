@@ -31,13 +31,13 @@ struct Expr {
     };
 
     Kind kind_ = Kind::Invalid;
-    Str section_;
+    StrRef section_;
 
     Expr(Kind kind) : kind_(kind) {}
     virtual ~Expr() = default;
 
     // Create an expression and bind it to the global context.
-    void* operator new(usz sz, Ctx* ctx, StrRef section = "");
+    void* operator new(usz sz, Ctx* ctx, StrRef section);
     // Disallow creating expressions with no global context.
     void* operator new(usz sz) = delete;
 };
@@ -129,7 +129,7 @@ struct Parser {
     Ctx* ctx_{};
     u16 fid_{};
     TokStream::Iterator tok_stream_it_;
-    Str curr_section_;
+    StrRef curr_section_;
 
     explicit Parser(Ctx* ctx, u16 fid);
 
@@ -142,7 +142,6 @@ struct Parser {
     auto parse_top_level_expr() -> Expr*;
     auto parse_file() -> Expr::List;
     auto parse_proc() -> ProcExpr*;
-    auto parse_var_expr() -> VarExpr*;
     auto parse_x86_instr_expr() -> X86InstrExpr*;
     auto parse_expr(i8 prec = 0) -> Expr*;
     auto perform_constant_folding(Expr*) -> Expr*;
@@ -165,11 +164,35 @@ struct Parser {
 
     // TODO(miloudi): Have proper error handling please.
     auto expect_any(std::same_as<TK> auto... tk) -> void {
-        assert(consume(tk...));
+        if (consume(tk...)) { return; }
+
+        ErrorSpan::emit(
+            ErrorSpan::from(
+                ctx_,
+                tok().loc_,
+                "Expected one of the following tokens: '{}' but found '{}' instead.",
+                fmt::format("[{}]", fmt::join(Vec<StrRef>{Lexer::str_of_tk(tk)...}, " ")),
+                Lexer::str_of_tk(tok().kind_)
+            )
+        );
     }
 
     auto expect_all(std::same_as<TK> auto... tk) -> void {
-        assert((consume(tk) and ...));
+        auto match_helper = [&](TK tk) {
+            if (consume(tk)) { return; }
+
+            ErrorSpan::emit(
+                ErrorSpan::from(
+                    ctx_,
+                    tok().loc_,
+                    "Expected Token: '{}' but found '{}' instead.",
+                    Lexer::str_of_tk(tk),
+                    Lexer::str_of_tk(tok().kind_)
+                )
+            );
+        };
+
+        (match_helper(tk), ...);
     }
 
     auto expect(TK tk) -> void { expect_all(tk); }
