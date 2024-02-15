@@ -126,6 +126,16 @@ struct Sib {
     }
 };
 
+struct X86Info {
+    static const utils::StringMap<X86Mnemonic> kMnemonics;
+    static const utils::StringMap<RI> kRegIds;
+    static const utils::StringMap<BW> kBitWidths;
+
+    static auto bit_width(StrRef bw) -> BW { return utils::strmap_get(kBitWidths, bw); }
+    static auto reg_id(StrRef ri) -> RI { return utils::strmap_get(kRegIds, ri); }
+    static auto mnemonic(StrRef mmic) -> X86Mnemonic { return utils::strmap_get(kMnemonics, mmic); }
+};
+
 } // namespace fiska::x86
 
 

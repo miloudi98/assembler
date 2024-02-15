@@ -2,88 +2,10 @@
 #define __X86_ASSEMBLER_LIB_FRONT_END_LEXER_HH__
 
 #include "lib/support/core.hh"
-#include "lib/support/fe_utils.hh"
 #include "lib/x86/common.hh"
+#include "lib/front_end/ctx.hh"
 
 namespace fiska::x86::fe {
-
-// Token kind.
-enum struct TK {
-    Invalid,
-
-    // One character tokens.
-    // '('
-    LParen,
-    // ')'
-    RParen,
-    // '{'
-    LBrace,
-    // '}'
-    RBrace,
-    // '['
-    LBracket,
-    // ']'
-    RBracket,
-    // '@'
-    At,
-    // ';'
-    SemiColon,
-    // ':'
-    Colon,
-    // ','
-    Comma,
-    // '+'
-    Plus,
-    // '-'
-    Minus,
-    // '/'
-    Slash,
-    // '*'
-    Star,
-    // '='
-    Eq,
-
-    // Multi-character tokens.
-    // Identifier
-    Ident,
-    // String literal.
-    StrLit,
-    // Number
-    Num,
-    // Bit width. (e.g. 'b8', 'b16', 'b32')
-    BitWidth,
-    // keyword 'let'
-    Let,
-    // keyword 'fn'
-    Fn,
-    // keyword 'section'
-    Section,
-    // x86 Registers.
-    Reg,
-    // x86 mnemonic. (e.g 'mov', 'addcx')
-    Mnemonic,
-    // End of file.
-    Eof,
-
-    Unknown,
-};
-
-struct Tok {
-    TK kind_{};
-    StrRef str_{};
-    Location loc_{};
-};
-
-struct TokStream {
-    using Storage = Vec<Tok>;
-    using Iterator = Vec<Tok>::iterator;
-    Storage storage_;
-
-    auto alloc_tok() -> Tok* { return &storage_.emplace_back(); }
-    auto back() -> Tok& { return storage_.back(); }
-    auto begin() -> Iterator { return storage_.begin(); }
-    auto end() -> Iterator { return storage_.end(); }
-};
 
 struct Ctx;
 struct Lexer {
@@ -112,24 +34,17 @@ struct Lexer {
     auto tok() -> Tok&;
     auto curr_offset() -> u32;
 
+    // TODO: Remove everything from here it's not needed anymore.
     static auto str_of_tk(TK tk) -> StrRef;
+    static auto bw_of_str(StrRef bw) -> BW;
+    static auto rid_of_str(StrRef rid) -> RI;
+    static auto mmic_of_str(StrRef mmic) -> X86Mnemonic;
     static const utils::StringMap<TK> keywords;
-    static const utils::StringMap<X86Mnemonic> mnemonics;
+    static const utils::StringMap<X86Mnemonic> mmics;
     static const utils::StringMap<RI> rids;
     static const utils::StringMap<BW> bws;
 };
 
 }  // namespace fiska::x86::fe
-
-// Support formatting tokens.
-template <>
-struct fmt::formatter<fiska::x86::fe::Tok> {
-    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
-
-    template <typename FormatContext>
-    auto format(const fiska::x86::fe::Tok& tok, FormatContext& ctx) const -> decltype(ctx.out()) {
-        return fmt::format_to(ctx.out(), "{}", fiska::x86::fe::Lexer::str_of_tk(tok.kind_));
-    }
-};
 
 #endif // __X86_ASSEMBLER_LIB_FRONT_END_LEXER_HH__

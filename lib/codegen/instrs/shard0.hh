@@ -7,8 +7,6 @@
 
 namespace fiska::x86::codegen::instrs {
 
-using namespace pats;
-
 using Mov = InstrExprList<
     X86Mnemonic::Mov,
 

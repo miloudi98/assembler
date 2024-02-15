@@ -3,22 +3,149 @@
 
 #include "lib/support/core.hh"
 #include "lib/x86/common.hh"
-#include "lib/codegen/ir.hh"
+#include "lib/front_end/ctx.hh"
 
-namespace fiska::x86::codegen::pats {
+namespace fiska::x86::codegen {
 
+//====================================================================
 // Forward declarations.
+//====================================================================
 struct any;
 
 // Base class of all IRX86OpClasses.
 struct IRX86OpClass {};
 
+//====================================================================
+// Miscelleneous Concepts.
+//====================================================================
 template <typename T>
 concept IsIRX86OpClass = std::derived_from<T, IRX86OpClass>;
 
 template <typename T>
 concept IsAnyX86OpClass = std::same_as<std::remove_cvref_t<T>, any>;
-    
+
+struct IRReg {
+    BW bw_ = BW::Invalid;
+    RI id_ = RI::Invalid;
+
+    auto ndx() const -> u8;
+    auto kind() const -> RK;
+    auto need_ext() const -> i1;
+
+    static auto need_ext(RI id) -> i1; 
+    static auto kind(RI id) -> RK;
+    static auto ndx(RI id) -> u8;
+};
+
+struct IRMem {
+    enum struct Scale : i8 {
+        Invalid = -1,
+        One = 0,
+        Two = 1,
+        Four = 2,
+        Eight = 3
+    };
+
+    BW bw_ = BW::Invalid;
+    RI brid_ = RI::Invalid;
+    RI irid_ = RI::Invalid;
+    Scale scale_ = Scale::Invalid;
+    i32 disp_{};
+
+    auto disp_bw() const -> BW;
+    auto kind() const -> MK;
+    auto mod() const -> u8;
+    auto need_sib() const -> i1;
+    auto sib() const -> u8;
+    auto ndx() const -> u8;
+};
+
+struct IRImm {
+    BW bw_ = BW::Invalid;
+    i64 value_{};
+};
+
+struct IRMoffs {
+    BW bw_ = BW::Invalid;
+    i64 addr_{};
+};
+
+// TODO: remove this, it's not needed here. Create a new type when lowering.
+struct RelocInfo {
+    StrRef sym_name_;
+    i1 must_reloc_{};
+    u8 type_{};
+    u8 instr_offset_{};
+};
+
+template <typename T>
+concept IsIRX86Op = OneOf<T, IRReg, IRMem, IRMoffs, IRImm>;
+
+struct IRX86Op {
+    static constexpr u8 kModReg = 0b11;
+    static constexpr u8 kMaxInstrLength = 15;
+    static constexpr u8 k16bitOpSzOverridePrefix = 0x66;
+    static constexpr u8 kSibMarker = 0b100;
+    static constexpr u8 kModMem = 0b00;
+    static constexpr u8 kModMemDisp8 = 0b01;
+    static constexpr u8 kModMemDisp32 = 0b10;
+    static constexpr u8 kNoIndexRegInSib = 0b100;
+    static constexpr u8 kNoBaseRegInSib = 0b101;
+
+    using Inner = std::variant<
+        std::monostate,
+        IRReg,
+        IRMem,
+        IRImm,
+        IRMoffs
+    >;
+    using Ref = const IRX86Op&;
+    using List = Vec<IRX86Op>;
+    using ListRef = const List&;
+
+    Inner inner_{};
+    // TODO: remove this, it's not needed here. Create a new type when lowering.
+    mutable RelocInfo reloc_info_{};
+
+    IRX86Op() {}
+    /*implicit*/IRX86Op(const Inner& i) : inner_(i) {}
+    /*implicit*/IRX86Op(const Inner& i, const RelocInfo& ri) :
+        inner_(i), reloc_info_(ri) {}
+
+    template <IsIRX86Op... Ts>
+    [[nodiscard]] auto is() const -> i1 { return (std::holds_alternative<Ts>(inner_) or ...); }
+
+    template <IsIRX86Op T>
+    [[nodiscard]] auto as() -> T& { return std::get<T>(inner_); }
+
+    template <IsIRX86Op T>
+    [[nodiscard]] auto as() const -> const T& { return std::get<T>(inner_); }
+
+    // Helper functions used extensively.
+    [[nodiscard]] auto r() const -> i1 { return is<IRReg>(); }
+    [[nodiscard]] auto m() const -> i1 { return is<IRMem>(); }
+    [[nodiscard]] auto rm() const -> i1 { return is<IRReg, IRMem>(); }
+    [[nodiscard]] auto mo() const -> i1 { return is<IRMoffs>(); }
+    [[nodiscard]] auto i() const -> i1 { return is<IRImm>(); }
+
+    [[nodiscard]] auto as_r() const -> const IRReg& { return as<IRReg>(); }
+    [[nodiscard]] auto as_m() const -> const IRMem& { return as<IRMem>(); }
+    [[nodiscard]] auto as_mo() const -> const IRMoffs& { return as<IRMoffs>(); }
+    [[nodiscard]] auto as_i() const -> const IRImm& { return as<IRImm>(); }
+
+    // Return the operand's r/m or reg value in the ModRM byte.
+    [[nodiscard]] auto ndx() const -> u8;
+
+};
+
+// TODO: This also doens't belong here.
+struct IRX86Instr {
+    using Ref = const IRX86Instr&;
+
+    X86Mnemonic mmic_ = X86Mnemonic::Invalid;
+    IRX86Op::List ops_;
+};
+
 //====================================================================
 // Alternative.
 //====================================================================
@@ -87,7 +214,6 @@ struct m<bit_width> : IRX86OpClass {
         return op.m() and op.as_m().bw_ == bit_width;
     }
 };
-
 //=====================================================
 // Immediate classes.
 //=====================================================
@@ -253,6 +379,62 @@ using gprs_requiring_rex = Alt<
     r<RI::R11>, r<RI::R12>, r<RI::R13>,
     r<RI::R14>, r<RI::R15>
 >;
+
+// Base class for all patterns.
+struct X86PatternClass {};
+
+template <typename T>
+concept IsX86PatternClass = std::derived_from<T, X86PatternClass>;
+
+// Operand size. Used to determine the instruction prefixes required for a given
+// x86 instruction expression.
+enum struct OpSz {
+    Default,
+    B16,
+    B64
+};
+
+template <OpSz operand_size = OpSz::Default, IsIRX86OpClass... IROpClass>
+struct Pat : X86PatternClass {
+    using MatchInfo = std::tuple<i1, OpSz>;
+
+    static constexpr u8 match_idx = 0;
+    static constexpr u8 opsz_idx = 1;
+    static constexpr OpSz opsz = operand_size;
+
+    static auto match(IRX86Op::ListRef ops) -> MatchInfo {
+        constexpr u8 ops_length = sizeof...(IROpClass);
+
+        if (ops_length == 0) { return { true, opsz }; }
+        if (ops_length != ops.size()) { return { false, opsz }; }
+
+        u8 op_idx = 0;
+        return { (IROpClass::match(ops[op_idx++]) and ...), opsz };
+
+    }
+};
+
+template <IsX86PatternClass... Pattern>
+struct Or : X86PatternClass {
+    using MatchInfo = Pat<>::MatchInfo;
+
+    static auto match(IRX86Op::ListRef ops) -> MatchInfo {
+        MatchInfo match_info{};
+
+        auto pattern_match = [&]<typename X86Pat>() {
+            auto [is_match, opsz] = X86Pat::match(ops);
+            if (is_match) {
+                std::get<Pat<>::match_idx>(match_info) = true;
+                std::get<Pat<>::opsz_idx>(match_info) = opsz;
+            }
+            return is_match;
+        };
+
+        std::ignore = (pattern_match.template operator()<Pattern>() or ...);
+        return match_info;
+    }
+};
+
 
 }  // namespace fiska::x86::patterns
 

@@ -4,206 +4,200 @@
 #include "lib/support/core.hh"
 #include "lib/x86/common.hh"
 #include "lib/front_end/lexer.hh"
+#include "lib/front_end/ctx.hh"
+#include "lib/codegen/patterns.hh"
 
 namespace fiska::x86::fe {
 
-struct Ctx;
-struct Expr {
-    using List = Vec<Expr*>;
-    using ListRef = const List&;
+template <typename Result>
+struct ParseResult {
+    using ValueType = std::conditional_t<std::is_void_v<Result>, std::monostate, Result>;
+    Pair<ValueType, TokStreamView> result_;
 
-    enum struct Kind {
-        Invalid, 
+    /*implicit*/ParseResult(const TokStreamView& tsv) : 
+        result_({std::monostate{}, tsv}) {}
 
-        Proc,
-        Type,
-        RegLit,
-        MemRefLit,
-        ImmLit,
-        MoffsLit,
-        IntLit,
-        Label,
+    /*implicit*/ParseResult(Result r, const TokStreamView tsv) :
+        result_({std::move(r), tsv}) {}
 
-        BinaryOp,
-        UnaryOp,
+    auto ok() const -> i1 { return std::holds_alternative<Result>(result_.first); }
 
-        X86Instr,
-    };
+    auto value() const -> Result { assert(ok()); return result_.first; }
 
-    Kind kind_ = Kind::Invalid;
-    StrRef section_;
+    auto tsv() const -> TokStreamView { return result_.second; }
 
-    Expr(Kind kind) : kind_(kind) {}
-    virtual ~Expr() = default;
+    auto operator or(const ParseResult<Result>& other) -> ParseResult<Result> {
+        if (ok()) { return *this; }
+        return other;
+    }
 
-    // Create an expression and bind it to the global context.
-    void* operator new(usz sz, Ctx* ctx, StrRef section);
-    // Disallow creating expressions with no global context.
-    void* operator new(usz sz) = delete;
-};
-
-// Register expression.
-struct RegLitExpr : Expr {
-    BW bw_ = BW::Invalid;
-    RI id_ = RI::Invalid;
-
-    RegLitExpr() : 
-        Expr(Expr::Kind::RegLit) {}
-};
-
-struct MemRefLitExpr : Expr {
-    BW bw_ = BW::Invalid;
-    RI brid_ = RI::Invalid;
-    RI irid_ = RI::Invalid;
-    i8 scale_{};
-
-    MemRefLitExpr() : Expr(Expr::Kind::MemRefLit) {}
-};
-
-struct ImmLitExpr : Expr {
-    BW bw_ = BW::Invalid;
-    Expr* value_ = nullptr;
-
-    ImmLitExpr() : Expr(Expr::Kind::ImmLit) {}
-};
-
-struct MoffsLitExpr : Expr {
-    BW bw_ = BW::Invalid;
-    Expr* addr_ = nullptr;
-
-    MoffsLitExpr() : Expr(Expr::Kind::MoffsLit) {}
-};
-
-struct IntLitExpr : Expr {
-    i64 value_{};
-
-    IntLitExpr(i64 v) : 
-        Expr(Expr::Kind::IntLit), value_(v) {}
-};
-
-struct LabelExpr : Expr {
-    StrRef name_;
-
-    LabelExpr(StrRef name) :
-        Expr(Expr::Kind::Label), name_(name) {}
-};
-
-struct BinaryOpExpr : Expr {
-    Expr* lhs_ = nullptr;
-    Expr* rhs_ = nullptr;
-    TK op_ = TK::Invalid;
-
-    BinaryOpExpr(TK op, Expr* lhs, Expr* rhs) : 
-        Expr(Expr::Kind::BinaryOp), lhs_(lhs), rhs_(rhs), op_(op) {}
-};
-
-struct UnaryOpExpr : Expr {
-    TK op_ = TK::Invalid;
-    Expr* inner_ = nullptr;
-
-    UnaryOpExpr() : Expr(Expr::Kind::UnaryOp) {}
-    UnaryOpExpr(TK o, Expr* i) :
-        Expr(Expr::Kind::UnaryOp), op_(o), inner_(i) {}
-};
-
-struct X86InstrExpr : Expr {
-    X86Mnemonic mmic_ = X86Mnemonic::Invalid;
-    Vec<Expr*> ops_;
-
-    X86InstrExpr() : Expr(Expr::Kind::X86Instr) {}
-};
-
-struct ProcExpr : Expr {
-    StrRef name_;
-    Vec<X86InstrExpr*> body_;
-
-    ProcExpr() : Expr(Expr::Kind::Proc) {}
-};
-
-struct VarExpr : Expr {
-    StrRef name_;
-    Expr* value_;
+    template <typename Callable>
+    auto operator >>=(Callable&& c) -> ParseResult<Result> {
+        if (not ok()) { *this; }
+        return c(tsv());
+    }
 };
 
 struct Parser {
-    Ctx* ctx_{};
-    u16 fid_{};
-    TokStream::Iterator tok_stream_it_;
-    StrRef curr_section_;
-
-    explicit Parser(Ctx* ctx, u16 fid);
-
-    auto next_tok() -> void;
-    auto tok() -> const Tok&;
-    auto peek_tok(i32 idx = 0) -> const Tok&;
-    auto peek_tok_kind(i32 idx = 0) -> TK { return peek_tok(idx).kind_; }
-    auto peek_tok_str(i32 idx = 0) -> StrRef { return peek_tok(idx).str_; }
-
-    auto parse_top_level_expr() -> Expr*;
-    auto parse_file() -> Expr::List;
-    auto parse_proc() -> ProcExpr*;
-    auto parse_x86_instr_expr() -> X86InstrExpr*;
-    auto parse_expr(i8 prec = 0) -> Expr*;
-    auto perform_constant_folding(Expr*) -> Expr*;
-    auto parse_i64(StrRef str) -> i64;
-
+    static auto parse_expr(Ctx* ctx, TokStreamView* tsv, i8 prec = 0) -> Expr*;
     static auto prefix_prec_of_tok_kind(TK tk) -> i8;
     static auto infix_prec_of_tok_kind(TK tk) -> i8;
-    static auto parse_i64() -> i64;
-
-    // Helper methods.
-    auto at(std::same_as<TK> auto... tk) -> i1 {
-        return ((tok().kind_ == tk) or ...);
-    }
-
-    auto consume(std::same_as<TK> auto... tk) -> i1 {
-        if (not at(tk...)) { return false; }
-        next_tok();
-        return true;
-    }
-
-    // TODO(miloudi): Have proper error handling please.
-    auto expect_any(std::same_as<TK> auto... tk) -> void {
-        if (consume(tk...)) { return; }
-
-        ErrorSpan::emit(
-            ErrorSpan::from(
-                ctx_,
-                tok().loc_,
-                "Expected one of the following tokens: '{}' but found '{}' instead.",
-                fmt::format("[{}]", fmt::join(Vec<StrRef>{Lexer::str_of_tk(tk)...}, " ")),
-                Lexer::str_of_tk(tok().kind_)
-            )
-        );
-    }
-
-    auto expect_all(std::same_as<TK> auto... tk) -> void {
-        auto match_helper = [&](TK tk) {
-            if (consume(tk)) { return; }
-
-            ErrorSpan::emit(
-                ErrorSpan::from(
-                    ctx_,
-                    tok().loc_,
-                    "Expected Token: '{}' but found '{}' instead.",
-                    Lexer::str_of_tk(tk),
-                    Lexer::str_of_tk(tok().kind_)
-                )
-            );
-        };
-
-        (match_helper(tk), ...);
-    }
-
-    auto expect(TK tk) -> void { expect_all(tk); }
-
-    auto match(std::same_as<TK> auto... tk) -> i1 {
-        i32 idx = 0;
-        return ((peek_tok_kind(idx++) == tk) and ...);
-    }
-
+    static auto parse_i64(StrRef num) -> i64;
 };
 
+using namespace codegen;
+
+template <IsIRX86OpClass... X86OpClass>
+struct X86Parser;
+
+//=====================================================
+// Parser for register classes.
+//=====================================================
+template <auto... args>
+struct X86Parser<r<args...>>  {
+    static auto parse(Ctx* ctx, TokStreamView tsv) -> ParseResult<Expr*> {
+        if (not tsv.match(TK::BitWidth, TK::Reg)) {
+            return tsv;
+        }
+        tsv.ingest(ctx, TK::BitWidth, TK::Reg);
+
+        auto reg = new (ctx) RegLitExpr(
+            X86Info::bit_width(tsv.peek(-2).str_),
+            X86Info::reg_id(tsv.peek(-1).str_));
+
+        return { reg, tsv };
+    }
+};
+
+//=====================================================
+// Parser for memory reference classes.
+//=====================================================
+template <auto... args>
+struct X86Parser<m<args...>> {
+    static auto parse(Ctx* ctx, TokStreamView tsv) -> ParseResult<Expr*> {
+        if (not tsv.match(TK::At, TK::BitWidth, TK::LBracket)) {
+            return tsv;
+        }
+        tsv.ingest(ctx, TK::At, TK::BitWidth);
+
+        auto mem = new (ctx) MemRefLitExpr;
+        mem->bw_ = X86Info::bit_width(tsv.peek(-2).str_);
+
+        tsv.ingest(ctx, TK::LBracket);
+        if (tsv.consume(TK::Reg)) {
+            mem->brid_ = X86Info::reg_id(tsv.peek(-1).str_);
+        }
+        tsv.ingest(ctx, TK::RBracket);
+
+        // Scale and index register.
+        if (tsv.consume(TK::LBracket)) {
+            // Scale.
+            mem->scale_ = Parser::parse_expr(ctx, &tsv);
+            tsv.ingest(ctx, TK::RBracket);
+
+            // Index register.
+            if (tsv.consume(TK::LBracket)) {
+                tsv.ingest(ctx, TK::Reg);
+                mem->irid_ = X86Info::reg_id(tsv.peek(-1).str_);
+            }
+            tsv.ingest(ctx, TK::RBracket);
+        }
+
+        // Displacement
+        if (tsv.consume(TK::Plus, TK::Minus)) {
+            TK binop = tsv.peek().kind_;
+            mem->disp_ = new (ctx) BinaryOpExpr(binop, new (ctx) IntLitExpr(0), Parser::parse_expr(ctx, &tsv));
+        }
+
+        return { mem, tsv };
+    }
+};
+
+//=====================================================
+// Parser for immediate classes.
+//=====================================================
+template <auto... args>
+struct X86Parser<i<args...>> {
+    static auto parse(Ctx* ctx, TokStreamView tsv) -> ParseResult<Expr*> {
+        if (not tsv.match(TK::BitWidth)) {
+            return tsv;
+        }
+        tsv.ingest(ctx, TK::BitWidth);
+
+        auto imm =  new (ctx) ImmLitExpr(
+            X86Info::bit_width(tsv.peek(-1).str_),
+            Parser::parse_expr(ctx, &tsv));
+
+        return { imm, tsv };
+    }
+};
+
+//=====================================================
+// Parser for memory offset classes.
+//=====================================================
+template <auto... args>
+struct X86Parser<mo<args...>> {
+    static auto parse(Ctx* ctx, TokStreamView tsv) -> ParseResult<Expr*> {
+        if (not tsv.match(TK::At, TK::BitWidth)) {
+            return tsv;
+        }
+        tsv.ingest(ctx, TK::At, TK::BitWidth);
+
+        auto moffs =  new (ctx) MoffsLitExpr(
+            X86Info::bit_width(tsv.peek(-1).str_),
+            Parser::parse_expr(ctx, &tsv));
+
+        return { moffs, tsv };
+    }
+};
+//=====================================================
+// Parser for Alternative op classes.
+//=====================================================
+template <IsIRX86OpClass... IROpClass>
+struct X86Parser<Alt<IROpClass...>> {
+    static auto parse(Ctx* ctx, TokStreamView tsv) -> ParseResult<Expr*> {
+        return (X86Parser<IROpClass>::parse(ctx, tsv) or ...);
+    }
+};
+
+//=====================================================
+// Parser for patterns.
+//=====================================================
+template <OpSz opsz, IsIRX86OpClass... IROpClass>
+struct X86Parser<Pat<opsz, IROpClass...>> {
+    static auto parse(Ctx* ctx, TokStreamView tsv) -> ParseResult<Expr::List> {
+        Expr::List ops;
+        TokStreamView curr_tsv = tsv;
+
+        auto bind_func = [&](TokStreamView tsv) {
+            fmt::format("bismillah");
+        };
+
+        return ((X86Parser<IROpClass>::parse(ctx, tsv) >>= bind_func) >>= ...);
+
+        auto parse_ir_op_class = [&]<typename IROpC>() {
+            ParseResult<Expr*> op = X86Parser<IROpC>::parse(ctx, curr_tsv);
+            if (not op.ok()) { return false; }
+
+            ops.push_back(op.value());
+            curr_tsv = op.tsv();
+
+            return true;
+        };
+
+        if ((parse_ir_op_class.template operator()<IROpClass>() and ...)) {
+            return { std::move(ops), curr_tsv };
+        }
+        return tsv;
+    }
+};
+
+template <IsX86PatternClass... Pattern>
+struct X86Parser<Or<Pattern...>> {
+    static auto parse(Ctx* ctx, TokStreamView tsv) -> ParseResult<Expr::List> {
+        return (X86Parser<Pattern>::parse(ctx, tsv) or ...);
+    }
+};
 
 } // namespace fiska::x86::fe
 

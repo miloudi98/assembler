@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <array>
+#include <expected>
 #include <map>
 #include <algorithm>
 #include <chrono>
@@ -55,6 +56,9 @@ using Vec = std::vector<T>;
 template <typename T>
 using Opt = std::optional<T>;
 
+template <typename T, typename E>
+using Result = std::expected<T, E>;
+
 template <typename T>
 using Span = std::span<T>;
 
@@ -63,6 +67,9 @@ using HashMap = std::unordered_map<Args...>;
 
 template <typename... Args>
 using Map = std::map<Args...>;
+
+template <typename First, typename Second>
+using Pair = std::pair<First, Second>;
 
 template <typename T, usz Size>
 using Arr = std::array<T, Size>;

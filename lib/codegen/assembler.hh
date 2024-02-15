@@ -21,61 +21,6 @@ enum struct OpEn {
     ZO,
 };
 
-// Base class for all patterns.
-struct X86PatternClass {};
-
-template <typename T>
-concept IsX86PatternClass = std::derived_from<T, X86PatternClass>;
-
-// Operand size. Used to determine the instruction prefixes required for a given
-// x86 instruction expression.
-enum struct OpSz {
-    Default,
-    B16,
-    B64
-};
-
-template <OpSz operand_size = OpSz::Default, pats::IsIRX86OpClass... IROpClass>
-struct Pat : X86PatternClass {
-    using MatchInfo = std::tuple<i1, OpSz>;
-
-    static constexpr u8 match_idx = 0;
-    static constexpr u8 opsz_idx = 1;
-    static constexpr OpSz opsz = operand_size;
-
-    static auto match(IRX86Op::ListRef ops) -> MatchInfo {
-        constexpr u8 ops_length = sizeof...(IROpClass);
-
-        if (ops_length == 0) { return { true, opsz }; }
-        if (ops_length != ops.size()) { return { false, opsz }; }
-
-        u8 op_idx = 0;
-        return { (IROpClass::match(ops[op_idx++]) and ...), opsz };
-
-    }
-};
-
-template <IsX86PatternClass... Pattern>
-struct Or : X86PatternClass {
-    using MatchInfo = Pat<>::MatchInfo;
-
-    static auto match(IRX86Op::ListRef ops) -> MatchInfo {
-        MatchInfo match_info{};
-
-        auto pattern_match = [&]<typename X86Pat>() {
-            auto [is_match, opsz] = X86Pat::match(ops);
-            if (is_match) {
-                std::get<Pat<>::match_idx>(match_info) = true;
-                std::get<Pat<>::opsz_idx>(match_info) = opsz;
-            }
-            return is_match;
-        };
-
-        std::ignore = (pattern_match.template operator()<Pattern>() or ...);
-        return match_info;
-    }
-};
-
 //=====================================================================================================================
 // Opcode type.
 //=====================================================================================================================
@@ -210,8 +155,8 @@ struct Emitter<OpEn::MR> {
         }
 
         i1 rex_required = rex.has_set_bits()
-            or pats::byte_regs_requiring_rex::match(rm)
-            or pats::byte_regs_requiring_rex::match(r);
+            or byte_regs_requiring_rex::match(rm)
+            or byte_regs_requiring_rex::match(r);
 
         InstrBuf buf;
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
@@ -299,7 +244,7 @@ struct Emitter<OpEn::OI> {
             .b = reg.as_r().need_ext(),
             .w = opsz == OpSz::B64 
         };
-        i1 rex_required = rex.has_set_bits() or pats::byte_regs_requiring_rex::match(reg);
+        i1 rex_required = rex.has_set_bits() or byte_regs_requiring_rex::match(reg);
 
         // Add the register index in the opcode. 
         // It is a bit awkward since we chose to pack all the bytes of an 
@@ -354,7 +299,7 @@ struct Emitter<OpEn::MI, slash_digit> {
             rex.b = IRReg::need_ext(rm.as_m().brid_);
             rex.x = IRReg::need_ext(rm.as_m().irid_);
         }
-        i1 rex_required = rex.has_set_bits() or pats::byte_regs_requiring_rex::match(rm);
+        i1 rex_required = rex.has_set_bits() or byte_regs_requiring_rex::match(rm);
 
         InstrBuf buf;
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.
@@ -391,7 +336,7 @@ struct Emitter<OpEn::I> {
         Rex rex {
             .w = opsz == OpSz::B64
         };
-        i1 rex_required = rex.has_set_bits() or pats::byte_regs_requiring_rex::match(ops[0]);
+        i1 rex_required = rex.has_set_bits() or byte_regs_requiring_rex::match(ops[0]);
 
         InstrBuf buf;
         // Operand size override to 16-bits. We always assume we are in 64-bit mode.

@@ -1,5 +1,4 @@
 #include "lib/front_end/lexer.hh"
-#include "lib/support/fe_utils.hh"
 #include "lib/support/core.hh"
 #include "lib/front_end/ctx.hh"
 
@@ -32,7 +31,7 @@ const utils::StringMap<TK> fiska::x86::fe::Lexer::keywords = {
     {"mov", TK::Mnemonic}, {"add", TK::Mnemonic}, {"adc", TK::Mnemonic}, {"syscall", TK::Mnemonic},
 };
 
-const utils::StringMap<X86Mnemonic> fiska::x86::fe::Lexer::mnemonics = {
+const utils::StringMap<X86Mnemonic> fiska::x86::fe::Lexer::mmics = {
     {"mov", X86Mnemonic::Mov},
     {"add", X86Mnemonic::Add},
     {"adc", X86Mnemonic::Adc},
@@ -81,7 +80,7 @@ auto fiska::x86::fe::Lexer::str_of_tk(TK tk) -> StrRef {
     case TK::Eq: return "=";
     case TK::StrLit: return "STR_LIT";
     case TK::Ident: return "IDENTIFIER";
-    case TK::Section: return "IDENTIFIER";
+    case TK::Section: return "SECTION";
     case TK::Num: return "NUMBER";
     case TK::BitWidth: return "BIT_WIDTH";
     case TK::Fn: return "FN";
@@ -119,7 +118,19 @@ auto fiska::x86::fe::Lexer::starts_ident(char c) -> i1 {
 }
 
 auto fiska::x86::fe::Lexer::continues_ident(char c) -> i1 {
-    return std::isalnum(c);
+    return starts_ident(c) or std::isdigit(static_cast<u8>(c));
+}
+
+auto fiska::x86::fe::Lexer::bw_of_str(StrRef bw) -> BW {
+    return utils::strmap_get(Lexer::bws, bw);
+}
+
+auto fiska::x86::fe::Lexer::rid_of_str(StrRef rid) -> RI {
+    return utils::strmap_get(Lexer::rids, rid);
+}
+
+auto fiska::x86::fe::Lexer::mmic_of_str(StrRef mmic) -> X86Mnemonic {
+    return utils::strmap_get(Lexer::mmics, mmic);
 }
 
 auto fiska::x86::fe::Lexer::next_c() -> void {

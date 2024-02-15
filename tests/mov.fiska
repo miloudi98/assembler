@@ -1,18 +1,19 @@
 section text {
 
-fn second {}
-
 fn _start {
     mov(@b64 [rax] + disp, b64 disp);
     // 64-bit memory offset.
     mov(b64 rax, @b64 disp);
-    mov(@b64 [rax] + disp, b64 disp);
+    mov(@b64 [rax] + disp, b64 1 + 2 + 3);
     mov(@b64 [rax] + disp, b64 disp);
     // 64-bit memory offset.
     mov(b64 rax, @b64 disp);
     // 64-bit memory offset.
     mov(b64 rax, @b64 disp);
-    mov(b64 rax, b64 .100);
+    mov(b64 rax, b64 100);
 }
 
-} // section text
+fn second_function {
+}
+
+}
