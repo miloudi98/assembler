@@ -7,7 +7,10 @@
 namespace fiska::x86 {
 
 // Forward declarations.
-namespace fe { struct Ctx; }
+namespace fe { 
+    struct Ctx;
+    struct TokStreamView;
+}
 
 struct File {
     u16 fid_{};
@@ -32,6 +35,11 @@ struct Location {
     u16 fid_{};
 
     auto merge(const Location& o) -> Location&;
+};
+
+struct ErrorLocation {
+    Location loc_;
+    StrRef file_;
 };
 
 struct ErrorSpan {
@@ -147,6 +155,7 @@ struct TokStream {
     auto back() -> Tok& { return storage_.back(); }
     auto begin() -> Iterator { return storage_.begin(); }
     auto end() -> Iterator { return storage_.end(); }
+    auto view() -> TokStreamView;
 };
 
 struct TokStreamView {
@@ -154,6 +163,7 @@ struct TokStreamView {
     const TokStream::Iterator beg_;
     const TokStream::Iterator end_;
     TokStream::Iterator cur_;
+    TokStream::Iterator buffered_cur_;
 
     explicit TokStreamView(TokStream::Iterator beg, TokStream::Iterator end)
         : beg_(beg), end_(end), cur_(beg) {}
@@ -185,33 +195,18 @@ struct TokStreamView {
         return true;
     }
 
-    auto ingest(Ctx* ctx, std::same_as<TK> auto... tk) -> void {
-        auto [mmatch, diff] = mismatch(tk...);
-        if (not mmatch) { return; }
-
-        ErrorSpan::emit(
-            ErrorSpan::from(
-                ctx,
-                tok().loc_,
-                "Expected Token: '{}' but found '{}' instead.",
-                diff.first,
-                diff.second
-            )
-        );
-    }
-
     auto mismatch(std::same_as<TK> auto... tk) -> TKMisMatch {
         TKMisMatch mm { false, { TK::Invalid, TK::Invalid } };
 
         auto check = [&](TK tk) -> i1 {
-            mm.first = consume(tk);
-            if (not mm.first) {
+            mm.first = not consume(tk);
+            if (mm.first) {
                 mm.second = { tk, tok().kind_ };
             }
             return mm.first;
         };
 
-        std::ignore = (check(tk) and ...);
+        std::ignore = (check(tk) or ...);
         return mm;
     }
 };
@@ -332,7 +327,7 @@ struct UnaryOpExpr : Expr {
 
 struct X86InstrExpr : Expr {
     X86Mnemonic mmic_ = X86Mnemonic::Invalid;
-    Vec<Expr*> ops_;
+    Expr::List ops_;
 
     X86InstrExpr() : Expr(Expr::Kind::X86Instr) {}
 };

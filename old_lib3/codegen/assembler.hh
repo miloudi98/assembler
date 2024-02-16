@@ -45,6 +45,7 @@ struct OpCode {
 //=====================================================================================================================
 struct InstrBuf {
     using Storage = ByteVec;
+    // TODO: Move all constants to X86Info that's where they belong.
     Storage storage_ = Storage(IRX86Op::kMaxInstrLength, 0);
 
     auto curr_off() -> u8 { return u8(storage_.size()); }
@@ -378,10 +379,6 @@ template <X86Mnemonic mnemonic, typename... InstrExpr>
 struct InstrExprList {
     static constexpr X86Mnemonic mmic = mnemonic;
 
-    // TODO(miloudi): Instead of returning true and or false return a tuple called MatchInfo containing
-    // the rex flags and the op size override.
-    // X86Ops should be passed by Refs. and when emitting the instruction All x86Ops should contain the patch offset
-    // so that we know how to patch the op should it need to be patched.
     static auto match(IRX86Op::ListRef ops) -> i1 {
         return (std::get<Pat<>::match_idx>(InstrExpr::pattern::match(ops)) or ...);
     }

@@ -204,3 +204,7 @@ auto fiska::x86::fe::Expr::operator new(usz sz, Ctx* ctx) -> void* {
     ctx->ast_.push_back(expr);
     return expr;
 }
+
+auto fiska::x86::fe::TokStream::view() -> TokStreamView {
+    return TokStreamView(begin(), end());
+}

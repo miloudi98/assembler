@@ -1,70 +1,13 @@
 #include "lib/front_end/parser.hh"
 #include "lib/support/core.hh"
 #include "lib/front_end/ctx.hh"
+#include "lib/codegen/instrs/shard0.hh"
 
-auto fiska::x86::fe::Parser::parse_expr(Ctx* ctx, TokStreamView* tsv, i8 prec) -> Expr* {
-    Expr* lhs = nullptr;
+namespace {
 
-    Tok curr_tok = tsv->peek();
-    auto span_start_it = tsv->current();
-    defer {
-        lhs->span_ = curr_tok.loc_;
-        // Set the span of the expression.
-        std::for_each(
-            span_start_it,
-            tsv->current(),
-            [lhs](const Tok& tok) { lhs->expand(tok); }
-        );
-    };
-    
-    switch (curr_tok.kind_) {
-    case TK::Ident: {
-        tsv->ingest(ctx, TK::Ident);
-        lhs = new (ctx) LabelExpr(tsv->peek(-1).str_);
-        break;
-    }
-    case TK::Num: {
-        tsv->ingest(ctx, TK::Num);
-        lhs = new (ctx) IntLitExpr(Parser::parse_i64(tsv->peek(-1).str_)); 
-        break;
-    }
-    case TK::Plus:
-    case TK::Minus: {
-        tsv->consume(TK::Plus, TK::Minus);
+constexpr auto prefix_prec_of_tok_kind(fiska::x86::fe::TK tk) -> i8 {
+    using fiska::x86::fe::TK;
 
-        i8 infix_prec = Parser::prefix_prec_of_tok_kind(curr_tok.kind_);
-        Expr* inner = Parser::parse_expr(ctx, tsv, infix_prec);
-        lhs = new (ctx) UnaryOpExpr(curr_tok.kind_, inner);
-        break;
-    }
-    default:
-        goto invalid_expression;
-
-    } // switch
-
-    while (Parser::infix_prec_of_tok_kind(tsv->peek().kind_) > prec) {
-        TK binop = tsv->peek().kind_;
-        tsv->ingest(ctx, binop);
-
-        i8 infix_prec = Parser::infix_prec_of_tok_kind(binop);
-        Expr* rhs = Parser::parse_expr(ctx, tsv, infix_prec);
-        lhs = new (ctx) BinaryOpExpr(binop, lhs, rhs);
-    }
-
-    return lhs;
-
-invalid_expression:
-    ErrorSpan::emit(
-        ErrorSpan::from(
-            ctx,
-            tsv->tok().loc_,
-            "Token '{}' does not start a valid expression.",
-            Lexer::str_of_tk(tsv->peek().kind_)
-        )
-    );
-}
-
-auto fiska::x86::fe::Parser::prefix_prec_of_tok_kind(TK tk) -> i8 {
     switch (tk) {
     case TK::Plus:
     case TK::Minus:
@@ -73,7 +16,9 @@ auto fiska::x86::fe::Parser::prefix_prec_of_tok_kind(TK tk) -> i8 {
     } // switch
 }
 
-auto fiska::x86::fe::Parser::infix_prec_of_tok_kind(TK tk) -> i8 {
+constexpr auto infix_prec_of_tok_kind(fiska::x86::fe::TK tk) -> i8 {
+    using fiska::x86::fe::TK;
+
     switch (tk) {
     case TK::Plus:
     case TK::Minus:
@@ -82,7 +27,7 @@ auto fiska::x86::fe::Parser::infix_prec_of_tok_kind(TK tk) -> i8 {
     } // switch
 }
 
-auto fiska::x86::fe::Parser::parse_i64(StrRef num_lxm) -> i64 {
+constexpr auto parse_i64(StrRef num_lxm) -> i64 {
     u8 radix{};
     if (num_lxm.starts_with("0x")) { radix = 16; num_lxm.remove_prefix(2); }
     else if (num_lxm.starts_with("0b")) { radix = 2; num_lxm.remove_prefix(2); }
@@ -116,6 +61,122 @@ auto fiska::x86::fe::Parser::parse_i64(StrRef num_lxm) -> i64 {
 
     assert(curr.empty(), "Invalid number encountered: '{}'.", num_lxm);
     return i64(ret);
+}
+
+} // namespace
+
+auto fiska::x86::fe::Parser::parse_expr(i8 prec) -> Expr* {
+    Expr* lhs = nullptr;
+
+    Tok curr_tok = tsv_.peek();
+    auto span_start_it = tsv_.current();
+    defer {
+        lhs->span_ = curr_tok.loc_;
+        // Set the span of the expression.
+        std::for_each(
+            span_start_it,
+            tsv_.current(),
+            [lhs](const Tok& tok) { lhs->expand(tok); }
+        );
+    };
+    
+    switch (curr_tok.kind_) {
+    case TK::Ident: {
+        ingest(TK::Ident);
+        lhs = new (ctx_) LabelExpr(tsv_.peek(-1).str_);
+        break;
+    }
+    case TK::Num: {
+        ingest(TK::Num);
+        lhs = new (ctx_) IntLitExpr(parse_i64(tsv_.peek(-1).str_)); 
+        break;
+    }
+    case TK::Plus:
+    case TK::Minus: {
+        tsv_.consume(TK::Plus, TK::Minus);
+
+        i8 infix_prec = prefix_prec_of_tok_kind(curr_tok.kind_);
+        Expr* inner = parse_expr(infix_prec);
+        lhs = new (ctx_) UnaryOpExpr(curr_tok.kind_, inner);
+        break;
+    }
+    default:
+        goto invalid_expression;
+
+    } // switch
+
+    while (infix_prec_of_tok_kind(tsv_.peek().kind_) > prec) {
+        TK binop = tsv_.peek().kind_;
+        ingest(binop);
+
+        i8 infix_prec = infix_prec_of_tok_kind(binop);
+        Expr* rhs = parse_expr(infix_prec);
+        lhs = new (ctx_) BinaryOpExpr(binop, lhs, rhs);
+    }
+
+    return lhs;
+
+invalid_expression:
+    ErrorSpan::emit(
+        ErrorSpan::from(
+            ctx_,
+            tsv_.tok().loc_,
+            "Token '{}' does not start a valid expression.",
+            Lexer::str_of_tk(tsv_.peek().kind_)
+        )
+    );
+}
+
+auto fiska::x86::fe::Parser::ingest(std::same_as<TK> auto... tk) -> void {
+    auto [mmatch, diff] = tsv_.mismatch(tk...);
+    if (not mmatch) { return; }
+
+    ErrorSpan::emit(ErrorSpan::from(
+        ctx_,
+        tsv_.tok().loc_,
+        "Expected Token: '{}' but found '{}' instead.",
+        diff.first,
+        diff.second
+    ));
+}
+
+auto fiska::x86::fe::Parser::parse_x86_instruction() -> X86InstrExpr* {
+    ingest(TK::Mnemonic, TK::LParen);
+
+    todo();
+}
+
+auto fiska::x86::fe::Parser::parse_proc() -> ProcExpr* {
+    auto proc = new (ctx_) ProcExpr;
+
+    ingest(TK::Fn, TK::Ident);
+
+    proc->name_ = tsv_.peek(-1).str_;
+
+
+    ingest(TK::LBrace);
+    while (not tsv_.at(TK::RBrace)) {
+        proc->body_.push_back(parse_x86_instruction());
+    }
+    ingest(TK::RBrace);
+
+    return proc;
+}
+
+auto fiska::x86::fe::Parser::parse_section() -> Expr::List {
+    Expr::List ast;
+    while (not tsv_.at(TK::Eof)) {
+
+        ingest(TK::Section, TK::Ident);
+        section_ = tsv_.peek(-1).str_;
+
+        ingest(TK::LBrace);
+        while (not tsv_.at(TK::RBrace)) {
+            ast.push_back(parse_proc());
+        }
+        ingest(TK::RBrace);
+    }
+    return ast;
 }
 
 

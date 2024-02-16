@@ -7,22 +7,17 @@
 
 namespace fiska::x86::codegen {
 
-//====================================================================
-// Forward declarations.
-//====================================================================
-struct any;
-
+// TODO: bad idea. Remove this and replace it with a good concept.
 // Base class of all IRX86OpClasses.
 struct IRX86OpClass {};
 
 //====================================================================
 // Miscelleneous Concepts.
 //====================================================================
+// TODO: bad idea. Remove this and replace it with types that tell whether something is indeed 
+// an x86 opclass.
 template <typename T>
 concept IsIRX86OpClass = std::derived_from<T, IRX86OpClass>;
-
-template <typename T>
-concept IsAnyX86OpClass = std::same_as<std::remove_cvref_t<T>, any>;
 
 struct IRReg {
     BW bw_ = BW::Invalid;
@@ -156,19 +151,13 @@ struct Alt : IRX86OpClass {
     }
 };
 
-//====================================================================
-// Wild card matching anything.
-//====================================================================
-struct any : IRX86OpClass {
-    static auto match(IRX86Op::Ref op) -> i1 { return true; }
-};
-
 //=====================================================
 // Register classes.
 //=====================================================
 template <auto... args>
 struct r;
 
+// Define proper concepts for x86 op classes and get rid of std::derived_from<IRX86OpClass> it doesn't seem right.
 template <BW bit_width>
 struct r<bit_width> : IRX86OpClass {
     static auto match(IRX86Op::Ref op) -> i1 {
@@ -335,7 +324,7 @@ using cr = r<RK::Ctrl>;
 // Dbg — A debug register. Debug registers are Dbg0 -- Dbg15. 
 using dbg = r<RK::Dbg>;
 // Rax, Eax, Ax, Al — Patterns for parts of the register Rax. We create patterns for them since
-// they are used a lot in instructions.
+// they are used a lot.
 using rax = r<BW::B64, RI::Rax>;
 using eax = r<BW::B32, RI::Rax>;
 using ax = r<BW::B16, RI::Rax>;
