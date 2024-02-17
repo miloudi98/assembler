@@ -253,7 +253,7 @@ auto fits_in_b8(i64 num) -> i1;
 auto fits_in_b16(i64 num) -> i1;
 auto fits_in_b32(i64 num) -> i1;
 
-auto number_width(u64 num, u32 base = 10) -> u32;
+auto number_width(u64 num, u32 base = 10) -> u8;
 
 auto load_file(const fs::path& path) -> Vec<char>;
 auto write_file(const void* data, usz size, const fs::path& path) -> i1;

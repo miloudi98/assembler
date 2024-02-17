@@ -1,5 +1,6 @@
 #include "lib/frontend/lexer.hh"
 #include "lib/common/base.hh"
+#include "lib/common/support.hh"
 
 namespace fiska::assembler::frontend {
 
@@ -60,18 +61,19 @@ auto lex_line_comment(Lexer* lxr) -> void {
 auto lex_str_lit(Lexer* lxr, Tok* tok) -> void {
     // Eat the opening '"'.
     next(lxr);
-    while (not eof(lxr) and lxr->c_ != '"') { next(lxr); }
 
-    // Eat the closing '"' or emit an error.
-    if (lxr->c_ != '"') {
-        // TODO: Emit a proper error.
-        assert(lxr->c_ == '"', "Missing enclosing '\"' in the string literal.");
-    }
-    next(lxr);
+    while (not eof(lxr) and lxr->c_ != '"') { next(lxr); }
 
     tok->kind_ = TK::StrLit;
     tok->str_ = lxr->ctx_->str_pool_.save( StrRef{file_start(lxr) + tok->span_.pos_, curr_offset(lxr) - tok->span_.pos_} );
     tok->span_.len_ = u16(tok->str_.size());
+
+    // Eat the closing '"' or emit an error.
+    if (lxr->c_ != '"') {
+        Diagnostic{lxr->ctx_, "Missing enclosing '\"'.", lxr->tok_stream_.back().span_};
+    }
+    next(lxr);
+
 }
 
 auto lex_num(Lexer* lxr, Tok* tok) -> void {
@@ -223,11 +225,9 @@ auto next_tok_helper(Lexer* lxr, Tok* tok) -> void {
         tok->span_.len_ = 1;
     }
     } // switch
-    
 }
 
 } // namespace
-
 } // namespace fiska::assembler::frontend
 
 const utils::StringMap<fiska::assembler::frontend::TK> fiska::assembler::frontend::Lexer::kKeywords = {
@@ -261,10 +261,7 @@ fiska::assembler::frontend::Lexer::Lexer(Ctx* ctx, u16 fid) :
 }
 
 auto fiska::assembler::frontend::Lexer::lex() -> TokStream {
-    if (tok_stream_.size() == 0) {
-        next_tok(this);
-    }
-    while (tok_stream_.back().kind_ != TK::Eof) {
+    while (tok_stream_.size() == 0 or tok_stream_.back().kind_ != TK::Eof) {
         next_tok(this);
     }
 

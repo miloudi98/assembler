@@ -1,6 +1,6 @@
 fn _start {
     mov(@b64 [rax] + disp, b64 disp);
-    mov("string literal);
+    mv(b23 $ asda);
     //// 64-bit memory offset.
     //mov(b64 rax, @b64 disp);
     //mov(@b64 [rax] + disp, b64 1 + 2 + 3);

@@ -14,11 +14,10 @@ struct Lexer {
     char c_{};
     TokStream tok_stream_;
 
-    explicit Lexer(Ctx* ctx, u16 fid);
-    // Lex the file identified by |fid_|.
-    auto lex() -> TokStream;
-
     static const utils::StringMap<TK> kKeywords;
+
+    explicit Lexer(Ctx* ctx, u16 fid);
+    auto lex() -> TokStream;
 };
 
 } // namespace fiska::assembler::frontend
