@@ -9,10 +9,11 @@ struct StringInterner {
     NOT_COPYABLE_NOT_MOVABLE(StringInterner);
 
     HashSet<StrRef> unique_strings_;
-    Vec<char> storage_;
+    Vec<char*> storage_;
 
 
     StringInterner() = default;
+    ~StringInterner();
     auto save(StrRef str) -> StrRef;
 };
 
@@ -45,6 +46,25 @@ struct Ctx {
     auto read_file(u16 fid) -> File*;
 };
 
+struct StyledChar {
+    char c_{};
+    fmt::text_style ts_{};
+};
+
+struct StyledStr {
+    Vec<StyledChar> inner_;
+
+    StyledStr(Str s, fmt::text_style ts) {
+        inner_.reserve(s.size());
+        std::transform(
+            s.begin()
+            , s.end(),
+            inner_.begin(),
+            [ts](char c) { return StyledChar{c, ts}; }
+        );
+    }
+};
+
 struct SpanInfo {
     // Starting line number.
     u32 lnr_{};
@@ -66,12 +86,6 @@ struct Span {
 };
 
 struct Diagnostic {
-    enum struct Level {
-        Error
-    };
-
-    Level lvl_ = Level::Error;
-
     [[noreturn]] explicit Diagnostic(Ctx* ctx, StrRef message, Span span);
 };
 

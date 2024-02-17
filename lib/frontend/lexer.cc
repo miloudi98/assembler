@@ -260,10 +260,11 @@ fiska::assembler::frontend::Lexer::Lexer(Ctx* ctx, u16 fid) :
     next(this);
 }
 
-auto fiska::assembler::frontend::Lexer::lex() -> TokStream {
-    while (tok_stream_.size() == 0 or tok_stream_.back().kind_ != TK::Eof) {
-        next_tok(this);
+auto fiska::assembler::frontend::Lexer::lex(Ctx* ctx, u16 fid) -> TokStream {
+    Lexer lxr(ctx, fid);
+    while (lxr.tok_stream_.size() == 0 or lxr.tok_stream_.back().kind_ != TK::Eof) {
+        next_tok(&lxr);
     }
 
-    return std::move(tok_stream_);
+    return std::move(lxr.tok_stream_);
 }

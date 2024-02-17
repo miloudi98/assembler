@@ -8,17 +8,18 @@ auto fiska::assembler::Span::include(const Span& o) -> Span& {
 }
 
 auto fiska::assembler::StringInterner::save(StrRef str) -> StrRef {
-    auto [slot, is_inserted] = unique_strings_.insert(str);
-    if (is_inserted) {
+    if (not unique_strings_.contains(str)) {
         // Intern the string.
-        u64 offset = storage_.size();
-
-        storage_.resize(storage_.size() + str.size());
-        std::memcpy(storage_.data() + offset, str.data(), str.size());
-
-        return StrRef{storage_.data() + offset, str.size()};
+        char* ll_str = new char[str.size()];
+        std::memcpy(ll_str, str.data(), str.size());
+        unique_strings_.insert(StrRef{ll_str, str.size()});
     }
-    return *slot;
+
+    return *unique_strings_.find(str);
+}
+
+fiska::assembler::StringInterner::~StringInterner() {
+    rgs::for_each(storage_, [](char* alloc) { delete[] alloc; });
 }
 
 auto fiska::assembler::Ctx::load_file(const fs::path& path) -> File* {
@@ -81,16 +82,11 @@ fiska::assembler::Diagnostic::Diagnostic(Ctx* ctx, StrRef message, Span span) {
     //   --> ${path}:${line}:${column}
     //    |
     // 16 |     fn foo(self) -> Self::Bar {
-    //    |                     ---------
+    //    |                     ~~~~~~~~~
     Str out;
 
     // Print the diagnostic level.
-    switch (lvl_) {
-    case Level::Error:
-        out += fmt::format(fg(red) | bold, "error: ");
-        break;
-    } // switch
-
+    out += fmt::format(fg(red) | bold, "error: ");
     // Print the error message.
     out += fmt::format("{}\n", message);
 
@@ -122,6 +118,7 @@ fiska::assembler::Diagnostic::Diagnostic(Ctx* ctx, StrRef message, Span span) {
         ? ""
         : StrRef{span_lbeg + span_info.cnr_ + span.len_, span_lend};
 
+    // Make sure the strings |before| |range| and |after| are all in one huge vec<StyledStr>;
     // Print what's before the range.
     out += fmt::format("{}{}", sidebar(span_info.lnr_), before);
     // Print the range.
@@ -134,9 +131,7 @@ fiska::assembler::Diagnostic::Diagnostic(Ctx* ctx, StrRef message, Span span) {
     // Account for before's offset and sidebar's offset.
     out += fmt::format("{}{}", sidebar(), Str(before.size(), ' '));
     // Underline.
-    assert(span_info.lines_[0].size() > 0, "Overflow");
-    out += fmt::format(fg(red), "^{}\n", Str(span_info.lines_[0].size() - 1, '~'));
-    span_info.lnr_++;
+    out += fmt::format(fg(red), "{}", Str(span_info.lines_[0].size(), '~'));
     // Remove the first line.
     span_info.lines_.erase(span_info.lines_.begin());
     // Underline the rest of the lines now.

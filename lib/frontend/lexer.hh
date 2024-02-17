@@ -7,6 +7,8 @@
 namespace fiska::assembler::frontend {
 
 struct Lexer {
+    static const utils::StringMap<TK> kKeywords;
+
     Ctx* ctx_{};
     u16 fid_{};
     const char* cur_{};
@@ -14,10 +16,8 @@ struct Lexer {
     char c_{};
     TokStream tok_stream_;
 
-    static const utils::StringMap<TK> kKeywords;
-
     explicit Lexer(Ctx* ctx, u16 fid);
-    auto lex() -> TokStream;
+    static auto lex(Ctx* ctx, u16 fid) -> TokStream;
 };
 
 } // namespace fiska::assembler::frontend

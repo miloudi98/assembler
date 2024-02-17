@@ -99,6 +99,8 @@ struct Expr {
     InnerType inner_{};
     Span span_{};
 
+    Expr(Expr&& o) : 
+        kind_(o.kind_), inner_(std::move(o.inner_)), span_(o.span_) {}
     /* implicit */Expr(InnerType expr) :
         kind_(kind_of_expr(expr)), inner_(std::move(expr)) {}
 
