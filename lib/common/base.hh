@@ -253,6 +253,8 @@ auto fits_in_b8(i64 num) -> i1;
 auto fits_in_b16(i64 num) -> i1;
 auto fits_in_b32(i64 num) -> i1;
 
+auto safe_add(i64 lhs, i64 rhs) -> Pair<i64, i1>;
+
 auto number_width(u64 num, u32 base = 10) -> u8;
 
 auto load_file(const fs::path& path) -> Vec<char>;

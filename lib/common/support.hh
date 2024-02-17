@@ -46,22 +46,41 @@ struct Ctx {
     auto read_file(u16 fid) -> File*;
 };
 
+// TODO: Styled string and styled char are really messy. Try to clean this up.
 struct StyledChar {
     char c_{};
     fmt::text_style ts_{};
 };
 
 struct StyledStr {
-    Vec<StyledChar> inner_;
+    using ValueType = Vec<StyledChar>;
+    using Iterator = ValueType::iterator;
+    ValueType inner_;
 
-    StyledStr(Str s, fmt::text_style ts) {
-        inner_.reserve(s.size());
+    explicit StyledStr(ValueType i) : inner_(std::move(i)) {}
+    explicit StyledStr(StrRef s, fmt::text_style ts) {
         std::transform(
-            s.begin()
-            , s.end(),
-            inner_.begin(),
+            s.begin(),
+            s.end(),
+            std::back_inserter(inner_),
             [ts](char c) { return StyledChar{c, ts}; }
         );
+    }
+    StyledStr(const StyledStr& o) = default;
+    StyledStr(StyledStr&& o) : inner_(std::move(o.inner_)) {}
+    StyledStr& operator=(StyledStr&& o) {
+        inner_ = std::move(o.inner_);
+        return *this;
+    }
+
+    auto begin() -> Iterator { return inner_.begin(); }
+    auto end() -> Iterator { return inner_.end(); }
+
+    auto merge(const StyledStr& o) -> StyledStr {
+        Vec<StyledChar> ret;
+        std::copy(inner_.begin(), inner_.end(), std::back_inserter(ret));
+        std::copy(o.inner_.begin(), o.inner_.end(), std::back_inserter(ret));
+        return StyledStr{std::move(ret)};
     }
 };
 
@@ -70,8 +89,8 @@ struct SpanInfo {
     u32 lnr_{};
     // Starting column number.
     u32 cnr_{};
-    // Span split into lines.
-    Vec<Str> lines_{};
+    // Span split into multiple lines.
+    Vec<StyledStr> slines_{};
 };
 
 struct Span {

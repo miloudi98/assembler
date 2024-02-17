@@ -2,6 +2,7 @@
 #include "lib/common/support.hh"
 #include "lib/frontend/lexer.hh"
 #include "lib/frontend/parser.hh"
+#include "lib/frontend/sema.hh"
 
 using namespace fiska::assembler;
 
@@ -12,13 +13,9 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
     File* file = ctx->load_file(fs::path(test_file));
 
-    frontend::Parser::parse(ctx.get(), file->fid_);
-    //frontend::Lexer lxr(ctx.get(), file->fid_);
-    //frontend::TokStream ts = frontend::Lexer::lex(ctx.get(), file->fid_);
+    auto ast = frontend::parse(ctx.get(), file->fid_);
 
-    //for (const auto& tok : ts.storage_) {
-    //    fmt::print("tok.kind = {}\n", tok.kind_);
-    //}
+    frontend::SemaDone token = frontend::analyze(ctx.get(), ast);
 
     return 0;
 }

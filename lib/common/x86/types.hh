@@ -117,4 +117,27 @@ struct X86Info {
 
 }  // namespace fiska::assembler
 
+// Support formatting bit widths.
+template <>
+struct fmt::formatter<fiska::assembler::BW> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const fiska::assembler::BW bw, FormatContext& ctx) const -> decltype(ctx.out()) {
+        using enum fiska::assembler::BW;
+
+        auto str_of_bw = [&] {
+            switch (bw) {
+            case Invalid: return "b{Invalid}";
+            case B8: return "b8";
+            case B16: return "b16";
+            case B24: return "b24";
+            case B32: return "b32";
+            case B64: return "b64";
+            } // switch
+            unreachable();
+        }();
+        return fmt::format_to(ctx.out(), "{}", str_of_bw);
+    }
+};
 #endif // __X86_ASSEMBLER_LIB_COMMON_X86_TYPES_HH__

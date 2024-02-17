@@ -7,7 +7,48 @@ namespace fiska::assembler::frontend {
 namespace {
 
 // Forward declarations.
-auto next_tok_helper(Lexer* lxr, Tok* tok) -> void;
+struct Lexer;
+auto next_tok_helper(Lexer*, Tok*) -> void;
+auto next(Lexer*) -> void;
+
+struct Lexer {
+    const char* cur_{};
+    const char* end_{};
+    Ctx* ctx_{};
+    u16 fid_{};
+    char c_{};
+    TokStream tok_stream_;
+
+    explicit Lexer(Ctx* ctx, u16 fid) :
+        cur_(ctx->files_[fid]->data()),
+        end_(ctx->files_[fid]->data() + ctx->files_[fid]->size()),
+        ctx_(ctx), fid_(fid)
+    {
+        // Initialize |c_| with the first character of the file.
+        next(this);
+    }
+};
+
+const utils::StringMap<TK> kKeywords = {
+    {"fn", TK::Fn}, {"let", TK::Let}, {"section", TK::Section},
+    {"b8", TK::BitWidth}, {"b16", TK::BitWidth}, {"b32", TK::BitWidth}, {"b64", TK::BitWidth},
+
+    {"rax", TK::Reg}, {"rcx", TK::Reg}, {"rdx", TK::Reg}, {"rbx", TK::Reg}, {"rsp", TK::Reg}, {"rbp", TK::Reg},
+    {"rsi", TK::Reg}, {"rdi", TK::Reg}, {"rip", TK::Reg}, {"r8", TK::Reg}, {"r9", TK::Reg}, {"r10", TK::Reg},
+    {"r11", TK::Reg}, {"r12", TK::Reg}, {"r13", TK::Reg}, {"r14", TK::Reg}, {"r15", TK::Reg},
+
+    {"es", TK::Reg}, {"cs", TK::Reg}, {"ss", TK::Reg}, {"ds", TK::Reg}, {"fs", TK::Reg}, {"gs", TK::Reg},
+
+    {"cr0", TK::Reg}, {"cr1", TK::Reg}, {"cr2", TK::Reg}, {"cr3", TK::Reg}, {"cr4", TK::Reg},
+    {"cr5", TK::Reg}, {"cr6", TK::Reg}, {"cr7", TK::Reg}, {"cr8", TK::Reg}, {"cr9", TK::Reg},
+    {"cr10", TK::Reg}, {"cr11", TK::Reg}, {"cr12", TK::Reg}, {"cr13", TK::Reg}, {"cr14", TK::Reg},
+    {"cr15", TK::Reg},
+
+    {"dbg0", TK::Reg}, {"dbg1", TK::Reg}, {"dbg2", TK::Reg}, {"dbg3", TK::Reg}, {"dbg4", TK::Reg},
+    {"dbg5", TK::Reg}, {"dbg6", TK::Reg}, {"dbg7", TK::Reg}, {"dbg8", TK::Reg}, {"dbg9", TK::Reg},
+    {"dbg10", TK::Reg}, {"dbg11", TK::Reg}, {"dbg12", TK::Reg}, {"dbg13", TK::Reg}, {"dbg14", TK::Reg},
+    {"dbg15", TK::Reg},
+};
 
 constexpr auto starts_ident(char c) -> i1 {
     return c == '_' or std::isalpha(static_cast<u8>(c));
@@ -92,7 +133,7 @@ auto lex_ident(Lexer* lxr, Tok* tok) -> void {
     } while (continues_ident(lxr->c_));
 
     tok->str_ = lxr->ctx_->str_pool_.save(StrRef{file_start(lxr) + tok->span_.pos_, curr_offset(lxr) - tok->span_.pos_});
-    tok->kind_ = Lexer::kKeywords.contains(tok->str_) ? utils::strmap_get(Lexer::kKeywords, tok->str_) : TK::Ident;
+    tok->kind_ = kKeywords.contains(tok->str_) ? utils::strmap_get(kKeywords, tok->str_) : TK::Ident;
     tok->span_.len_ = u16(tok->str_.size());
 }
 
@@ -105,7 +146,6 @@ auto next_tok_helper(Lexer* lxr, Tok* tok) -> void {
     case 0: {
         next(lxr);
         tok->kind_ = TK::Eof;
-        tok->span_.len_ = 1;
         break;
     }
     case ',': {
@@ -230,41 +270,10 @@ auto next_tok_helper(Lexer* lxr, Tok* tok) -> void {
 } // namespace
 } // namespace fiska::assembler::frontend
 
-const utils::StringMap<fiska::assembler::frontend::TK> fiska::assembler::frontend::Lexer::kKeywords = {
-    {"fn", TK::Fn}, {"let", TK::Let}, {"section", TK::Section},
-    {"b8", TK::BitWidth}, {"b16", TK::BitWidth}, {"b32", TK::BitWidth}, {"b64", TK::BitWidth},
-
-    {"rax", TK::Reg}, {"rcx", TK::Reg}, {"rdx", TK::Reg}, {"rbx", TK::Reg}, {"rsp", TK::Reg}, {"rbp", TK::Reg},
-    {"rsi", TK::Reg}, {"rdi", TK::Reg}, {"rip", TK::Reg}, {"r8", TK::Reg}, {"r9", TK::Reg}, {"r10", TK::Reg},
-    {"r11", TK::Reg}, {"r12", TK::Reg}, {"r13", TK::Reg}, {"r14", TK::Reg}, {"r15", TK::Reg},
-
-    {"es", TK::Reg}, {"cs", TK::Reg}, {"ss", TK::Reg}, {"ds", TK::Reg}, {"fs", TK::Reg}, {"gs", TK::Reg},
-
-    {"cr0", TK::Reg}, {"cr1", TK::Reg}, {"cr2", TK::Reg}, {"cr3", TK::Reg}, {"cr4", TK::Reg},
-    {"cr5", TK::Reg}, {"cr6", TK::Reg}, {"cr7", TK::Reg}, {"cr8", TK::Reg}, {"cr9", TK::Reg},
-    {"cr10", TK::Reg}, {"cr11", TK::Reg}, {"cr12", TK::Reg}, {"cr13", TK::Reg}, {"cr14", TK::Reg},
-    {"cr15", TK::Reg},
-
-    {"dbg0", TK::Reg}, {"dbg1", TK::Reg}, {"dbg2", TK::Reg}, {"dbg3", TK::Reg}, {"dbg4", TK::Reg},
-    {"dbg5", TK::Reg}, {"dbg6", TK::Reg}, {"dbg7", TK::Reg}, {"dbg8", TK::Reg}, {"dbg9", TK::Reg},
-    {"dbg10", TK::Reg}, {"dbg11", TK::Reg}, {"dbg12", TK::Reg}, {"dbg13", TK::Reg}, {"dbg14", TK::Reg},
-    {"dbg15", TK::Reg},
-};
-
-fiska::assembler::frontend::Lexer::Lexer(Ctx* ctx, u16 fid) : 
-    ctx_(ctx), fid_(fid),
-    cur_(ctx->files_[fid]->data()),
-    end_(ctx_->files_[fid]->data() + ctx_->files_[fid]->size())
-{
-    // Initialize the last character.
-    next(this);
-}
-
-auto fiska::assembler::frontend::Lexer::lex(Ctx* ctx, u16 fid) -> TokStream {
+auto fiska::assembler::frontend::lex(Ctx* ctx, u16 fid) -> TokStream {
     Lexer lxr(ctx, fid);
-    while (lxr.tok_stream_.size() == 0 or lxr.tok_stream_.back().kind_ != TK::Eof) {
+    while (lxr.tok_stream_.empty() or lxr.tok_stream_.back().kind_ != TK::Eof) {
         next_tok(&lxr);
     }
-
     return std::move(lxr.tok_stream_);
 }

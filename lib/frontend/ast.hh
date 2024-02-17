@@ -42,24 +42,38 @@ struct LabelExpr {
 };
 
 struct BinaryOpExpr {
-    TK op_ = TK::Invalid;
+    Tok op_{};
     Box<Expr> lhs_ = nullptr;
     Box<Expr> rhs_ = nullptr;
 };
 
 struct UnaryOpExpr {
-    TK op_ = TK::Invalid;
+    Tok op_{};
     Box<Expr> inner_ = nullptr;
 };
 
 struct X86InstrExpr {
     X86Mnemonic mnemonic_ = X86Mnemonic::Invalid;
-    Vec<Expr> ops_;
+    Vec<Box<Expr>> ops_;
 };
 
 struct ProcExpr {
     StrRef name_;
-    Vec<Box<X86InstrExpr>> body_;
+    Vec<Box<Expr>> body_;
+};
+
+struct VarExpr {
+    BW type_ = BW::Invalid;
+    StrRef name_;
+    Box<Expr> value_;
+};
+
+struct StrExpr {
+    StrRef lit_;
+};
+
+struct ArrayExpr {
+    Vec<Box<Expr>> values_;
 };
 
 struct Expr {
@@ -76,7 +90,10 @@ struct Expr {
         BinaryOpExpr,
         UnaryOpExpr,
         X86InstrExpr,
-        ProcExpr
+        ProcExpr,
+        VarExpr,
+        StrExpr,
+        ArrayExpr
     >;
 
     enum struct Kind {
@@ -91,28 +108,35 @@ struct Expr {
         BinaryOp,
         UnaryOp,
         X86Instr,
-        Proc
+        Proc,
+        Var,
+        Str,
+        Array,
     };
 
 
     Kind kind_ = Kind::Invalid;
+    StrRef section_;
     InnerType inner_{};
     Span span_{};
 
-    Expr(Expr&& o) : 
-        kind_(o.kind_), inner_(std::move(o.inner_)), span_(o.span_) {}
+    Expr() = default;
     /* implicit */Expr(InnerType expr) :
         kind_(kind_of_expr(expr)), inner_(std::move(expr)) {}
+    Expr(Expr&& o) : 
+        kind_(o.kind_), inner_(std::move(o.inner_)), span_(o.span_) {}
+    Expr& operator=(Expr&& o) {
+        kind_ = o.kind_;
+        inner_ = std::move(o.inner_);
+        span_ = o.span_;
+        return *this;
+    }
 
     template <typename T>
     auto is() const -> i1 { return std::holds_alternative<T>(inner_); }
 
     template <typename T>
     auto as() const -> const T& { return std::get<T>(inner_); }
-
-    template <typename T>
-    auto as() const -> T& { return std::get<T>(inner_); }
-
 
     // Expr::Kind of an AST node.
     static auto kind_of_expr(const InnerType& expr) -> Kind {
@@ -126,6 +150,9 @@ struct Expr {
         if (std::holds_alternative<UnaryOpExpr>(expr)) { return Kind::UnaryOp; }
         if (std::holds_alternative<X86InstrExpr>(expr)) { return Kind::X86Instr; }
         if (std::holds_alternative<ProcExpr>(expr)) { return Kind::Proc; }
+        if (std::holds_alternative<VarExpr>(expr)) { return Kind::Var; }
+        if (std::holds_alternative<StrExpr>(expr)) { return Kind::Str; }
+        if (std::holds_alternative<ArrayExpr>(expr)) { return Kind::Array; }
         unreachable();
     }
 };
@@ -153,6 +180,9 @@ struct fmt::formatter<fiska::assembler::frontend::Expr::Kind> {
                 case Expr::Kind::UnaryOp: return "UnaryOpExpr";
                 case Expr::Kind::X86Instr: return "X86InstrExpr";
                 case Expr::Kind::Proc: return "ProcExpr";
+                case Expr::Kind::Var: return "VarExpr";
+                case Expr::Kind::Str: return "StrExpr";
+                case Expr::Kind::Array: return "ArrayExpr";
                 case Expr::Kind::Invalid: return "InvalidExpr";
             } // switch
             unreachable();

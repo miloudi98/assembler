@@ -10,9 +10,9 @@ auto fiska::assembler::Span::include(const Span& o) -> Span& {
 auto fiska::assembler::StringInterner::save(StrRef str) -> StrRef {
     if (not unique_strings_.contains(str)) {
         // Intern the string.
-        char* ll_str = new char[str.size()];
-        std::memcpy(ll_str, str.data(), str.size());
-        unique_strings_.insert(StrRef{ll_str, str.size()});
+        storage_.push_back(new char[str.size()]);
+        std::memcpy(storage_.back(), str.data(), str.size());
+        unique_strings_.insert(StrRef{storage_.back(), str.size()});
     }
 
     return *unique_strings_.find(str);
@@ -39,13 +39,10 @@ auto fiska::assembler::Ctx::read_file(u16 fid) -> File* {
 }
 
 auto fiska::assembler::Span::info(Ctx* ctx) -> SpanInfo {
-    SpanInfo info{};
+    using enum fmt::color;
+    using enum fmt::emphasis;
 
-    // Split the span into lines.
-    StrRef span_str{ctx->files_[fid_]->data() + pos_, len_};
-    for (const auto line : span_str | vws::split('\n')) {
-        info.lines_.push_back(Str{line.begin(), line.end()});
-    }
+    SpanInfo info{};
 
     // Find the starting line number and column number.
     info.lnr_ = 1;
@@ -57,6 +54,32 @@ auto fiska::assembler::Span::info(Ctx* ctx) -> SpanInfo {
         info.cnr_ = *c == '\n' ? 1 : info.cnr_ + 1;
         c++;
     }
+
+    // Return early if this is the span of the EOF token.
+    if (eof()) { return info; }
+
+
+    // Find the start and the end of the line where the error occured.
+    auto [span_lbeg, span_lend] = line(ctx);
+    auto before = StyledStr({span_lbeg, info.cnr_ - 1}, fmt::emphasis(0));
+    auto after = StyledStr(
+        span_lbeg + (info.cnr_ - 1) + len_ >= span_lend ? "" : StrRef{span_lbeg + (info.cnr_ - 1) + len_, span_lend},
+        fmt::emphasis(0)
+    );
+
+    // Split the span into lines.
+    StrRef span_str{ctx->files_[fid_]->data() + pos_, len_};
+    auto styled_lines = span_str 
+        | vws::split('\n')
+        | vws::transform([&](auto vw) { return StyledStr(StrRef{vw}, fg(red) | bold); });
+
+    for (const auto& line : styled_lines) {
+        if (line.inner_.empty()) { continue; }
+        info.slines_.push_back(std::move(line));
+    }
+
+    info.slines_[0] = before.merge(info.slines_[0]);
+    info.slines_.back() = info.slines_.back().merge(after);
 
     return info;
 }
@@ -111,55 +134,24 @@ fiska::assembler::Diagnostic::Diagnostic(Ctx* ctx, StrRef message, Span span) {
 
     // Empty line above.
     out += fmt::format("{}\n", sidebar());
-    // Error line.
-    auto [span_lbeg, span_lend] = span.line(ctx);
-    auto before = StrRef{span_lbeg, span_info.cnr_ - 1};
-    auto after = span_lbeg + span_info.cnr_ + span.len_ >= span_lend
-        ? ""
-        : StrRef{span_lbeg + span_info.cnr_ + span.len_, span_lend};
-
-    // Make sure the strings |before| |range| and |after| are all in one huge vec<StyledStr>;
-    // Print what's before the range.
-    out += fmt::format("{}{}", sidebar(span_info.lnr_), before);
     // Print the range.
-    //
-    // Print the first line since we need to account for the characters before the start 
-    // of the range.
-    out += fmt::format(fg(red), "{}\n", span_info.lines_[0]); 
-    // Underline the first line.
-    //
-    // Account for before's offset and sidebar's offset.
-    out += fmt::format("{}{}", sidebar(), Str(before.size(), ' '));
-    // Underline.
-    out += fmt::format(fg(red), "{}", Str(span_info.lines_[0].size(), '~'));
-    // Remove the first line.
-    span_info.lines_.erase(span_info.lines_.begin());
-    // Underline the rest of the lines now.
-    //
-    // Truncate the lines if the error is too long...
-    if (span_info.lines_.size() > 20) {
-        span_info.lines_ = Vec<Str>{span_info.lines_.begin(), span_info.lines_.begin() + 20};
-    }
-    for (const auto& line : span_info.lines_) {
-        if (line.empty()) { continue; }
-
+    for (StyledStr& styled_line : span_info.slines_) {
         out += sidebar(span_info.lnr_);
-        out += fmt::format(fg(red), "{}\n", line);
+        for (const StyledChar& sc : styled_line) {
+            out += fmt::format(sc.ts_, "{}", sc.c_);
+        }
+        out += "\n";
+
         // Underline the line.
-        //
-        // Don't underline whitespace.
         out += sidebar();
-        for (i1 underline = false; char c : line) {
-            underline |= not std::isspace(static_cast<u8>(c));
-            out += fmt::format(fg(red), "{}", underline ? '~' : ' ');
+        for (i1 underline = false; StyledChar sc : styled_line) {
+            underline |= not std::isspace(static_cast<u8>(sc.c_));
+            out += fmt::format(sc.ts_, "{}", 
+                    underline and sc.ts_.has_emphasis() ? '~' : ' ');
         }
         out += "\n";
         span_info.lnr_++;
     }
-    // Remove the last newline to print what's after the range.
-    out.pop_back();
-    // Print what's after the range.
-    out += fmt::format("{}\n", after);
     // Empty line below.
     out += fmt::format("{}\n", sidebar());
 

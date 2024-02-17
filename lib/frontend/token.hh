@@ -71,7 +71,7 @@ enum struct TK {
 struct Tok {
     Span span_{};
     TK kind_ = TK::Invalid;
-    StrRef str_;
+    StrRef str_{};
 };
 
 struct TokStream {
@@ -84,8 +84,9 @@ struct TokStream {
     TokStream(TokStream&& other) : storage_(std::move(other.storage_)) {}
 
     auto alloc() -> Tok* { return &storage_.emplace_back(); }
-    auto size() -> u64 { return storage_.size(); }
-    auto back() -> const Tok& { return storage_.back(); }
+    auto size() const -> u64 { return storage_.size(); }
+    auto back() const -> const Tok& { return storage_.back(); }
+    auto empty() const -> i1 { return storage_.empty(); }
 
     auto operator[](i32 idx) -> const Tok& {
         assert(idx >= 0 and idx < i64(size()), "Index out of bounds.");

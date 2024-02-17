@@ -56,7 +56,15 @@ auto utils::fits_in_b16(i64 num) -> i1 { return fits_in_i16(num) or fits_in_u16(
 auto utils::fits_in_b32(i64 num) -> i1 { return fits_in_i32(num) or fits_in_u32(num); }
 
 auto utils::number_width(u64 num, u32 base) -> u8 {
-    return num == 0 ? 1 : u32(std::log(num) / std::log(base) + 1);
+    return num == 0 ? u8(1) : u8(std::log(num) / std::log(base) + 1);
+}
+
+auto utils::safe_add(i64 lhs, i64 rhs) -> Pair<i64, i1> {
+    i1 overflow = lhs > 0 
+        ? rhs > std::numeric_limits<i64>::max() - lhs
+        : rhs < std::numeric_limits<i64>::min() - lhs;
+
+    return { lhs + rhs, overflow };
 }
 
 [[noreturn]] auto utils::assert_helper(
