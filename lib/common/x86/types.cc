@@ -37,4 +37,158 @@ const utils::StringMap<BW> X86Info::kBitWidths = {
     {"b64", BW::B64},
 };
 
+auto X86Info::register_req_ext(RI ri) -> i1 {
+    return (+ri >= +RI::R8 and +ri <= +RI::R15)
+        or (+ri >= +RI::Cr8 and +ri <= +RI::Cr15)
+        or (+ri >= +RI::Dbg8 and +ri <= +RI::Dbg15);
+}
+
+auto X86Info::register_kind(RI ri) -> RK {
+    switch (ri) {
+    case RI::Invalid: unreachable();
+
+    case RI::Rax:
+    case RI::Rcx:
+    case RI::Rdx:
+    case RI::Rbx:
+    case RI::Rsp:
+    case RI::Rbp:
+    case RI::Rsi:
+    case RI::Rdi:
+    case RI::R8:
+    case RI::R9:
+    case RI::R10:
+    case RI::R11:
+    case RI::R12:
+    case RI::R13:
+    case RI::R14:
+    case RI::R15:
+    case RI::Rah:
+    case RI::Rch:
+    case RI::Rdh:
+    case RI::Rbh:
+        return RK::Gp;
+
+    case RI::Rip:
+        return RK::Ip;
+
+    case RI::Es:
+    case RI::Cs:
+    case RI::Ss:
+    case RI::Ds:
+    case RI::Fs:
+    case RI::Gs:
+        return RK::Seg;
+
+    case RI::Cr0:
+    case RI::Cr1:
+    case RI::Cr2:
+    case RI::Cr3:
+    case RI::Cr4:
+    case RI::Cr5:
+    case RI::Cr6:
+    case RI::Cr7:
+    case RI::Cr8:
+    case RI::Cr9:
+    case RI::Cr10:
+    case RI::Cr11:
+    case RI::Cr12:
+    case RI::Cr13:
+    case RI::Cr14:
+    case RI::Cr15:
+        return RK::Ctrl;
+
+    case RI::Dbg0:
+    case RI::Dbg1:
+    case RI::Dbg2:
+    case RI::Dbg3:
+    case RI::Dbg4:
+    case RI::Dbg5:
+    case RI::Dbg6:
+    case RI::Dbg7:
+    case RI::Dbg8:
+    case RI::Dbg9:
+    case RI::Dbg10:
+    case RI::Dbg11:
+    case RI::Dbg12:
+    case RI::Dbg13:
+    case RI::Dbg14:
+    case RI::Dbg15:
+        return RK::Dbg;
+    } // switch
+    unreachable();
+}
+
+auto X86Info::register_ndx(RI ri) -> u8 {
+    switch (ri) {
+    case RI::Invalid: unreachable();
+
+    case RI::Rax: return 0;
+    case RI::Rcx: return 1;
+    case RI::Rdx: return 2;
+    case RI::Rbx: return 3;
+    case RI::Rsp: return 4;
+    case RI::Rbp: return 5;
+    case RI::Rsi: return 6;
+    case RI::Rdi: return 7;
+    case RI::R8:  return 0;
+    case RI::R9:  return 1;
+    case RI::R10: return 2;
+    case RI::R11: return 3;
+    case RI::R12: return 4;
+    case RI::R13: return 5;
+    case RI::R14: return 6;
+    case RI::R15: return 7;
+    case RI::Rah: return 4;
+    case RI::Rch: return 5;
+    case RI::Rdh: return 6;
+    case RI::Rbh: return 7;
+
+    case RI::Rip: return 5;
+
+    case RI::Es: return 0;
+    case RI::Cs: return 1;
+    case RI::Ss: return 2;
+    case RI::Ds: return 3;
+    case RI::Fs: return 4;
+    case RI::Gs: return 5;
+
+    case RI::Cr0:  return 0;
+    case RI::Cr1:  return 1;
+    case RI::Cr2:  return 2;
+    case RI::Cr3:  return 3;
+    case RI::Cr4:  return 4;
+    case RI::Cr5:  return 5;
+    case RI::Cr6:  return 6;
+    case RI::Cr7:  return 7;
+    case RI::Cr8:  return 0;
+    case RI::Cr9:  return 1;
+    case RI::Cr10: return 2;
+    case RI::Cr11: return 3;
+    case RI::Cr12: return 4;
+    case RI::Cr13: return 5;
+    case RI::Cr14: return 6;
+    case RI::Cr15: return 7;
+
+    case RI::Dbg0:  return 0;
+    case RI::Dbg1:  return 1;
+    case RI::Dbg2:  return 2;
+    case RI::Dbg3:  return 3;
+    case RI::Dbg4:  return 4;
+    case RI::Dbg5:  return 5;
+    case RI::Dbg6:  return 6;
+    case RI::Dbg7:  return 7;
+    case RI::Dbg8:  return 0;
+    case RI::Dbg9:  return 1;
+    case RI::Dbg10: return 2;
+    case RI::Dbg11: return 3;
+    case RI::Dbg12: return 4;
+    case RI::Dbg13: return 5;
+    case RI::Dbg14: return 6;
+    case RI::Dbg15: return 7;
+    } // switch
+
+    unreachable();
+}
+
 } // namespace fiska::assembler

@@ -65,6 +65,80 @@ enum struct RI : u8 {
     Dbg15
 };
 
+// Register kind.
+enum struct RK : i8 {
+    Invalid, 
+
+    Ip,
+    Gp,
+    Seg,
+    Ctrl,
+    Dbg
+};
+
+// Memory reference kind.
+enum struct MK {
+    Invalid,
+
+    BaseDisp,
+    BaseIndexDisp,
+    IndexDisp,
+    DispOnly
+};
+
+// Operand size. Used to determine the instruction prefixes required for a given
+// x86 instruction expression.
+enum struct OpSz {
+    Default,
+    B16,
+    B64
+};
+
+// Instruction operand encoding.
+enum struct OpEn {
+    MR,
+    RM,
+    FD,
+    TD,
+    OI,
+    MI,
+    I,
+    ZO,
+};
+
+// Opcode type.
+template <u8... byte>
+requires (sizeof...(byte) <= 3)
+struct OpCode {
+    static constexpr auto value() -> u32 {
+        constexpr std::array bytes = {byte...};
+
+        switch (sizeof...(byte)) {
+        case 1: return bytes[0];
+        case 2: return bytes[0] | bytes[1] << 8;
+        case 3: return bytes[0] | bytes[1] << 8 | bytes[2] << 16;
+        default: unreachable();
+        }
+        unreachable();
+    }
+};
+
+//=====================================================================================================================
+// [[intel]]
+// /digit — A digit between 0 and 7 indicates that the ModR/M byte of the instruction uses only the r/m (register
+// or memory) operand. The reg field contains the digit that provides an extension to the instruction's opcode
+//=====================================================================================================================
+enum struct SlashDigit : u8 {
+    Zero = 0,
+    One = 1,
+    Two = 2,
+    Three = 3,
+    Four = 4,
+    Five = 5,
+    Six = 6,
+    Seven = 7
+};
+
 struct Rex {
     // Mod_Rm::r/m or Sib::Base extension or opcode extension.
     u8 b: 1{};
@@ -106,6 +180,15 @@ struct Sib {
 };
 
 struct X86Info {
+    static constexpr u8 kModReg = 0b11;
+    static constexpr u8 kMaxInstrLength = 15;
+    static constexpr u8 k16bitOpSzOverridePrefix = 0x66;
+    static constexpr u8 kSibMarker = 0b100;
+    static constexpr u8 kModMem = 0b00;
+    static constexpr u8 kModMemDisp8 = 0b01;
+    static constexpr u8 kModMemDisp32 = 0b10;
+    static constexpr u8 kNoIndexRegInSib = 0b100;
+    static constexpr u8 kNoBaseRegInSib = 0b101;
     static const utils::StringMap<X86Mnemonic> kMnemonics;
     static const utils::StringMap<RI> kRegIds;
     static const utils::StringMap<BW> kBitWidths;
@@ -113,6 +196,10 @@ struct X86Info {
     static auto bit_width(StrRef bw) -> BW { return utils::strmap_get(kBitWidths, bw); }
     static auto register_id(StrRef ri) -> RI { return utils::strmap_get(kRegIds, ri); }
     static auto mnemonic(StrRef mmic) -> X86Mnemonic { return utils::strmap_get(kMnemonics, mmic); }
+    static auto register_kind(RI ri) -> RK;
+    static auto register_req_ext(RI ri) -> i1;
+    static auto register_ndx(RI ri) -> u8;
+
 };
 
 }  // namespace fiska::assembler

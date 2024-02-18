@@ -41,6 +41,7 @@ auto label_count(Expr* node) -> i64 {
 // Assumes that |label_count(node) == 1|.
 auto reduce_expr_to_value(Ctx* ctx, Expr* node) -> ReducedValue {
     assert(node);
+
     if (label_count(node) > 1) {
         Diagnostic {
             ctx,
@@ -250,4 +251,8 @@ auto analyze_expr(Ctx* ctx, Expr* node) -> void {
 auto fiska::assembler::frontend::analyze(Ctx* ctx, const Vec<Box<Expr>>& ast) -> SemaDone {
     rgs::for_each(ast, [&](const Box<Expr>& node) { analyze_expr(ctx, node.get()); });
     return SemaDone();
+}
+
+auto fiska::assembler::frontend::reduce_value_node(Ctx* ctx, Expr* node, SemaDone) -> ReducedValue {
+    return reduce_expr_to_value(ctx, node);
 }

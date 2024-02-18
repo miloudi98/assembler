@@ -13,6 +13,7 @@ private:
 };
 
 auto analyze(Ctx* ctx, const Vec<Box<Expr>>& ast) -> SemaDone;
+auto reduce_value_node(Ctx* ctx, Expr* node, SemaDone) -> Pair<StrRef, i64>;
 
 } // namespace fiska::assembler::frontend
 

@@ -5,7 +5,7 @@ fn _start {
     //// 64-bit memory offset.
     //mov(b64 rax, @b64 disp);
     //mov(@b64 [rax] + disp, b64 1 + 2 + 3);
-    mov(@b64 [rax] + 0x1122334455, b64 disp);
+    mov(@b64 [rax] + 0x11223344, b64 disp);
     //// 64-bit memory offset.
     //mov(b64 rax, @b64 disp);
     //// 64-bit memory offset.

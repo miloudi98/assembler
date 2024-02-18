@@ -3,7 +3,6 @@
 #include "lib/common/support.hh"
 
 namespace fiska::assembler::frontend {
-
 namespace {
 
 // Forward declarations.
