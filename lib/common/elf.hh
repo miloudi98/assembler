@@ -61,6 +61,7 @@ enum {
     SHT_PROGBITS = 1,
     SHT_SYMTAB = 2,
     SHT_STRTAB = 3,
+    SHT_RELA = 4,
 };
 
 // Symbol type and binding attributes.
@@ -84,8 +85,39 @@ enum {
 };
 
 // x86-64 relocations.
+// A -- Represents the addend used to compute the value of the relocatable field.
+//
+// B -- Represents the base address at which a shared object has been loaded into memory
+// during execution. Generally, a shared object is built with a 0 base virtual address, but the execution address will be different.
+//
+// G -- Represents the offset into the global offset table at which the relocation entry’s symbol will reside during execution.
+//
+// GOT -- Represents the address of the global offset table.
+//
+// L -- Represents the place (section offset or address) of the Procedure Linkage Table entry
+// for a symbol.
+//
+// P -- Represents the place (section offset or address) of the storage unit being relocated (com-
+// puted using r_offset.
+//
+// S -- Represents the value of the symbol whose index resides in the relocation entry.
+//
+// Z -- Represents the size of the symbol whose index resides in the relocation entry.
 enum {
+    // S + A
+    R_X86_64_8 = 14,
+
+    // S + A
+    R_X86_64_16 = 12,
+
+    // S + A
+    R_X86_64_32 = 10,
+
+    // S + A
     R_X86_64_32S = 11,
+
+    // S + A
+    R_X86_64_64 = 1,
 };
 
 struct Elf64_Ehdr {

@@ -2,33 +2,52 @@
 #define __X86_ASSEMBLER_LIB_BACKEND_CODEGEN_PATTERNS_HH__
 
 #include "lib/common/base.hh"
+#include "lib/backend/ir.hh"
 
 namespace fiska::assembler::backend {
 
-// Forward declarations.
-//
-// Concept for constraining a type to the x86 op classes defined above.
+//=====================================================================================================================
+// X86 operand class identifier concept.
+//=====================================================================================================================
 template <typename T> struct is_x86_op_class_t : std::false_type {};
-
-// Register classes.
-template <auto... args> struct r; 
-// Memory classes.
-template <auto... args> struct m;
-// Immediate classes.
-template <auto... args> struct i;
-// Memory offset classes.
-template <auto... args> struct mo;
-// Any combination of the x86 op classes above.
-template <is_x86_op_class... OpClass> struct AnyOf;
-
-template <is_x86_op_class... Ts> struct is_x86_op_class_t<AnyOf<Ts...>> : std::true_type {};
-template <auto... args> struct is_x86_op_class_t<r<args...>> : std::true_type {};
-template <auto... args> struct is_x86_op_class_t<m<args...>> : std::true_type {};
-template <auto... args> struct is_x86_op_class_t<i<args...>> : std::true_type {};
-template <auto... args> struct is_x86_op_class_t<mo<args...>> : std::true_type {};
-
 template <typename T> concept is_x86_op_class = is_x86_op_class_t<T>::value;
 
+template <auto... args>
+struct r;
+
+template <auto... args>
+struct m;
+
+template <auto... args>
+struct i;
+
+template <auto... args>
+struct mo;
+
+template <is_x86_op_class... OpClass>
+struct AnyOf;
+
+
+template <is_x86_op_class... OpClass>
+struct is_x86_op_class_t<AnyOf<OpClass...>> : std::true_type {};
+
+template <auto... args> 
+struct is_x86_op_class_t<r<args...>> : std::true_type {};
+
+template <auto... args> 
+struct is_x86_op_class_t<m<args...>> : std::true_type {};
+
+template <auto... args>
+struct is_x86_op_class_t<i<args...>> : std::true_type {};
+
+template <auto... args>
+struct is_x86_op_class_t<mo<args...>> : std::true_type {};
+
+
+template <>
+struct r<> {
+    static auto match(IRX86Op::Ref op) -> i1 { return op.r(); }
+};
 
 template <BW bit_width>
 struct r<bit_width> {
@@ -63,6 +82,11 @@ struct r<id> {
     }
 };
 
+template <>
+struct m<> {
+    static auto match(IRX86Op::Ref op) -> i1 { return op.m(); }
+};
+
 template <BW bit_width>
 struct m<bit_width> {
     static auto match(IRX86Op::Ref op) -> i1 {
@@ -70,11 +94,21 @@ struct m<bit_width> {
     }
 };
 
+template <>
+struct i<> {
+    static auto match(IRX86Op::Ref op) -> i1 { return op.i(); }
+};
+
 template <BW bit_width>
 struct i<bit_width> {
     static auto match(IRX86Op::Ref op) -> i1 {
         return op.i() and op.as_i().bw_ == bit_width;
     }
+};
+
+template <>
+struct mo<> {
+    static auto match(IRX86Op::Ref op) -> i1 { return op.mo(); }
 };
 
 template <BW bit_width>
@@ -122,6 +156,8 @@ using m32 = m<BW::B32>;
 // [[intel]]
 // m64 — A memory quadword operand in memory.
 using m64 = m<BW::B64>;
+// r/m — Register or memory operand.
+using rm = AnyOf<r<>, m<>>;
 // [[intel]]
 // r/m8 — A byte operand that is either the contents of a byte general-purpose register (AL, CL, DL, BL, AH, CH,
 // DH, BH, BPL, SPL, DIL, and SIL) or a byte from memory. Byte registers R8B - R15B are available using REX.R

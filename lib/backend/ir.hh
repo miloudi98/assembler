@@ -59,8 +59,6 @@ struct IRMoffs {
     IRValue addr_{};
 };
 
-// REMINDER: Relocations are going to be produced by... the emitter. The X86op has all the information 
-// required to produce a patchable relocation. so DON'T ADD the patch offset member variable to the IRX86Op.
 struct IRX86Op {
     using Ref = const IRX86Op&;
     using List = Vec<IRX86Op>;
@@ -98,6 +96,12 @@ struct IRX86Op {
     [[nodiscard]] auto as_m() const -> const IRMem& { return as<IRMem>(); }
     [[nodiscard]] auto as_i() const -> const IRImm& { return as<IRImm>(); }
     [[nodiscard]] auto as_mo() const -> const IRMoffs& { return as<IRMoffs>(); }
+
+    [[nodiscard]] auto ndx() const -> u8 { return r() ? as_r().ndx() : as_m().ndx(); }
+    [[nodiscard]] auto mod() const -> u8 { return r() ? X86Info::kModReg : as_m().mod(); }
+
+    [[nodiscard]] auto req_reloc() const -> i1;
+    [[nodiscard]] auto reloc_symbol_name() const -> StrRef;
 };
 
 struct IRX86Instr {
@@ -121,14 +125,21 @@ struct IRSymbol {
         IRVar
     >;
 
+    enum struct Kind {
+        Invalid,
+
+        Proc,
+        Var
+    };
+
+    Kind kind_ = Kind::Invalid;
     StrRef name_;
     StrRef section_;
-    // TODO: We'll probably need this.
-    // Span span_;
+    Span span_;
     ValueType inner_{};
 
     IRSymbol() = default;
-    /*implicit*/IRSymbol(ValueType i) : inner_(std::move(i)) {}
+    /*implicit*/IRSymbol(ValueType i) : kind_(kind_of_symbol(i)), inner_(std::move(i)) {}
 
     template <OneOf<IRProc, IRVar>... Ts>
     [[nodiscard]] auto is() const -> i1 { return (std::holds_alternative<Ts>(inner_) or ...); }
@@ -138,6 +149,12 @@ struct IRSymbol {
 
     template <OneOf<IRProc, IRVar> T>
     [[nodiscard]] auto as() const -> const T& { return std::get<T>(inner_); }
+
+    [[nodiscard]] static auto kind_of_symbol(const ValueType& value) -> Kind {
+        if (std::holds_alternative<IRProc>(value)) { return Kind::Proc; }
+        if (std::holds_alternative<IRVar>(value)) { return Kind::Var; }
+        unreachable();
+    }
 };
 
 // Entry point for lowering the AST.

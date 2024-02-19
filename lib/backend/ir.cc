@@ -5,105 +5,6 @@
 #include <bit>
 
 namespace fiska::assembler::backend {
-
-auto IRReg::ndx() const -> u8 {
-    return X86Info::register_ndx(ri_);
-}
-
-auto IRReg::kind() const -> RK {
-    return X86Info::register_kind(ri_);
-}
-
-auto IRReg::req_ext() const -> i1 {
-    return X86Info::register_req_ext(ri_);
-}
-
-auto IRMem::disp_bw() const -> BW {
-    if (bri_ == RI::Rip 
-        or isa<MK::IndexDisp, MK::DispOnly>(kind())
-        or disp_.req_reloc())
-    { 
-        return BW::B32; 
-    }
-
-    if (disp_.has_value() or isa<RI::Rbp, RI::R13>(bri_)) {
-        return std::bit_width(u32(disp_.addend_)) <= 8 ? BW::B8 : BW::B32;
-    }
-    return BW::Invalid;
-}
-
-auto IRMem::kind() const -> MK {
-    if (bri_ == RI::Invalid and iri_ == RI::Invalid) {
-        return MK::DispOnly;
-    }
-    if (bri_ == RI::Invalid) {
-        return MK::IndexDisp;
-    }
-    if (iri_ == RI::Invalid) {
-        return MK::BaseDisp;
-    }
-    return MK::BaseIndexDisp;
-}
-
-auto IRMem::mod() const -> u8 {
-    if (isa<MK::DispOnly, MK::IndexDisp>(kind())
-            or disp_bw() == BW::Invalid
-            or bri_ == RI::Rip)
-    {
-        return X86Info::kModMem;
-    }
-
-    if (disp_.req_reloc()) { return X86Info::kModMemDisp32; }
-
-    return std::bit_width(u32(disp_.addend_)) <= 8 ? X86Info::kModMemDisp8 : X86Info::kModMemDisp32;
-}
-
-auto IRMem::ndx() const -> u8 {
-    return need_sib() ? X86Info::kSibMarker : X86Info::register_ndx(bri_);
-}
-
-// Supress warnings from bit-fields narrowings. We are not aware of 
-// any way to supress them other than removing the -Wconversion flag
-// from the code in question.
-GCC_DIAG_IGNORE_PUSH(-Wconversion)
-auto IRMem::sib() const -> u8 {
-    assert(need_sib());
-
-    Sib sib{};
-    switch (kind()) {
-    case MK::Invalid: unreachable();
-
-    case MK::BaseDisp: {
-        sib.base = X86Info::register_ndx(bri_);
-        sib.index = X86Info::kNoIndexRegInSib;
-        break;
-    }
-    case MK::BaseIndexDisp: {
-        sib.base = X86Info::register_ndx(bri_);
-        sib.index = X86Info::register_ndx(iri_);
-        sib.scale = 1 << +scale_;
-        break;
-    }
-    case MK::IndexDisp: {
-        sib.base = X86Info::kNoBaseRegInSib;
-        sib.index = X86Info::register_ndx(iri_);
-        sib.scale = 1 << +scale_;
-        break;
-    }
-    case MK::DispOnly: {
-        sib.base = X86Info::kNoBaseRegInSib;
-        sib.index = X86Info::kNoIndexRegInSib;
-        break;
-    }
-    } // switch
-    return sib.raw();
-}
-GCC_DIAG_IGNORE_POP();
-
-auto IRMem::need_sib() const -> i1 {
-    return kind() != MK::BaseDisp or isa<RI::Rsp, RI::R12>(bri_);
-}
-
 namespace {
 
 auto lower_x86_instr_expr(
@@ -214,8 +115,124 @@ auto as_byte_vec(BW bw, i64 qword) -> ByteVec {
     } // switch
     return ret;
 }
-
 } // namespace
+
+auto IRReg::ndx() const -> u8 {
+    return X86Info::register_ndx(ri_);
+}
+
+auto IRReg::kind() const -> RK {
+    return X86Info::register_kind(ri_);
+}
+
+auto IRReg::req_ext() const -> i1 {
+    return X86Info::register_req_ext(ri_);
+}
+
+auto IRMem::disp_bw() const -> BW {
+    if (bri_ == RI::Rip 
+        or isa<MK::IndexDisp, MK::DispOnly>(kind())
+        or disp_.req_reloc())
+    { 
+        return BW::B32; 
+    }
+
+    if (disp_.has_value() or isa<RI::Rbp, RI::R13>(bri_)) {
+        return std::bit_width(u32(disp_.addend_)) <= 8 ? BW::B8 : BW::B32;
+    }
+    return BW::Invalid;
+}
+
+auto IRMem::kind() const -> MK {
+    if (bri_ == RI::Invalid and iri_ == RI::Invalid) {
+        return MK::DispOnly;
+    }
+    if (bri_ == RI::Invalid) {
+        return MK::IndexDisp;
+    }
+    if (iri_ == RI::Invalid) {
+        return MK::BaseDisp;
+    }
+    return MK::BaseIndexDisp;
+}
+
+auto IRMem::mod() const -> u8 {
+    if (isa<MK::DispOnly, MK::IndexDisp>(kind())
+            or disp_bw() == BW::Invalid
+            or bri_ == RI::Rip)
+    {
+        return X86Info::kModMem;
+    }
+
+    if (disp_.req_reloc()) { return X86Info::kModMemDisp32; }
+
+    return std::bit_width(u32(disp_.addend_)) <= 8 ? X86Info::kModMemDisp8 : X86Info::kModMemDisp32;
+}
+
+auto IRMem::ndx() const -> u8 {
+    return need_sib() ? X86Info::kSibMarker : X86Info::register_ndx(bri_);
+}
+
+// Supress warnings from bit-fields narrowings. We are not aware of 
+// any way to supress them other than removing the -Wconversion flag
+// from the code in question.
+GCC_DIAG_IGNORE_PUSH(-Wconversion)
+auto IRMem::sib() const -> u8 {
+    assert(need_sib());
+
+    Sib sib{};
+    switch (kind()) {
+    case MK::Invalid: unreachable();
+
+    case MK::BaseDisp: {
+        sib.base = X86Info::register_ndx(bri_);
+        sib.index = X86Info::kNoIndexRegInSib;
+        break;
+    }
+    case MK::BaseIndexDisp: {
+        sib.base = X86Info::register_ndx(bri_);
+        sib.index = X86Info::register_ndx(iri_);
+        sib.scale = 1 << +scale_;
+        break;
+    }
+    case MK::IndexDisp: {
+        sib.base = X86Info::kNoBaseRegInSib;
+        sib.index = X86Info::register_ndx(iri_);
+        sib.scale = 1 << +scale_;
+        break;
+    }
+    case MK::DispOnly: {
+        sib.base = X86Info::kNoBaseRegInSib;
+        sib.index = X86Info::kNoIndexRegInSib;
+        break;
+    }
+    } // switch
+    return sib.raw();
+}
+GCC_DIAG_IGNORE_POP();
+
+auto IRMem::need_sib() const -> i1 {
+    return kind() != MK::BaseDisp or isa<RI::Rsp, RI::R12>(bri_);
+}
+
+auto IRX86Op::req_reloc() const -> i1 {
+    if (r()) { return false; }
+    if (m()) { return as_m().disp_.req_reloc(); }
+    if (i()) { return as_i().value_.req_reloc(); }
+    if (mo()) { return as_mo().addr_.req_reloc(); }
+
+    unreachable();
+}
+
+auto IRX86Op::reloc_symbol_name() const -> StrRef {
+    assert(req_reloc());
+
+    if (m()) { return as_m().disp_.symbol_name_; }
+    if (i()) { return as_i().value_.symbol_name_; }
+    if (mo()) { return as_mo().addr_.symbol_name_; }
+
+    unreachable();
+}
 
 auto lower(Ctx* ctx, const Vec<Box<frontend::Expr>>& ast, frontend::SemaDone sema_done) -> Vec<IRSymbol> {
     using namespace frontend;

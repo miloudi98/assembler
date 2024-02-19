@@ -88,7 +88,7 @@ enum struct MK {
 
 // Operand size. Used to determine the instruction prefixes required for a given
 // x86 instruction expression.
-enum struct OpSz {
+enum struct OpSz{
     Default,
     B16,
     B64
@@ -122,6 +122,17 @@ struct OpCode {
         unreachable();
     }
 };
+//=====================================================================================================================
+// Opcode identifier concept.
+//=====================================================================================================================
+template <typename T> 
+struct is_opcode_t : std::false_type {};
+
+template <u8... byte> 
+struct is_opcode_t<OpCode<byte...>> : std::true_type {};
+
+template <typename T> concept is_opcode = is_opcode_t<T>::value;
+
 
 //=====================================================================================================================
 // [[intel]]
@@ -193,6 +204,7 @@ struct X86Info {
     static const utils::StringMap<RI> kRegIds;
     static const utils::StringMap<BW> kBitWidths;
 
+    static auto symbol_binding_and_type(u8 b, u8 t) -> u8 { return (b << 4) | (t & 0x0f); }
     static auto bit_width(StrRef bw) -> BW { return utils::strmap_get(kBitWidths, bw); }
     static auto register_id(StrRef ri) -> RI { return utils::strmap_get(kRegIds, ri); }
     static auto mnemonic(StrRef mmic) -> X86Mnemonic { return utils::strmap_get(kMnemonics, mmic); }
