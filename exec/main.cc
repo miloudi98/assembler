@@ -5,6 +5,7 @@
 #include "lib/frontend/sema.hh"
 #include "lib/backend/ir.hh"
 #include "lib/backend/codegen/emitters.hh"
+#include "lib/backend/codegen/object.hh"
 
 using namespace fiska::assembler;
 
@@ -19,7 +20,7 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
     frontend::SemaDone sema_done = frontend::analyze(ctx.get(), ast);
     Vec<backend::IRSymbol> symbols = backend::lower(ctx.get(), ast, sema_done);
-
+    backend::gen(symbols, fs::path("/home/jawad/fiska/dev/x86_assembler/fiska.out"));
 
     return 0;
 }

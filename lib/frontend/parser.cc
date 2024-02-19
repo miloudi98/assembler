@@ -389,7 +389,7 @@ auto fiska::assembler::frontend::parse(Ctx* ctx, u16 fid) -> Vec<Box<Expr>> {
 
     while (not at(&p, TK::Eof)) {
         ingest(&p, TK::Section, TK::Ident, TK::LBrace);
-        p.section_ = peek(&p, -3).str_;
+        p.section_ = peek(&p, -2).str_;
 
         while (not at(&p, TK::RBrace)) {
             switch (peek(&p).kind_) {

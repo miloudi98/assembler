@@ -4,10 +4,8 @@
 namespace fiska::assembler {
 
 const utils::StringMap<X86Mnemonic> X86Info::kMnemonics = {
-    {"mov", X86Mnemonic::Mov},
-    {"add", X86Mnemonic::Add},
-    {"adc", X86Mnemonic::Adc},
-    {"syscall", X86Mnemonic::Syscall},
+    {"mov", X86Mnemonic::Mov}, {"add", X86Mnemonic::Add}, {"adc", X86Mnemonic::Adc}, {"syscall", X86Mnemonic::Syscall},
+    {"and", X86Mnemonic::And}
 };
 
 const utils::StringMap<RI> X86Info::kRegIds = {

@@ -13,12 +13,13 @@ namespace fiska::assembler::backend {
 namespace fiska::assembler::backend {
 #define CASE(mnemonic) case X86Mnemonic::mnemonic: return mnemonic::emit(i.ops_)
 
-auto assembler(const IRX86Instr& i) -> X86ByteCode {
+auto assemble(const IRX86Instr& i) -> X86ByteCode {
     switch (i.mnemonic_) {
         CASE(Mov);
         CASE(Add);
         CASE(Adc);
         CASE(Syscall);
+        CASE(And);
 
         default: unreachable("Instruction not supported.");
     }

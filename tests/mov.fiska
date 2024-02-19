@@ -1,7 +1,7 @@
 section text {
 
 fn _start {
-    mov(@b64 [rax] + 0x11223344, b64 disp);
+    mov(@b64 [rax] + 0x11223344, b32 disp);
 }
 
 }

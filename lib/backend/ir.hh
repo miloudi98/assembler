@@ -150,6 +150,10 @@ struct IRSymbol {
     template <OneOf<IRProc, IRVar> T>
     [[nodiscard]] auto as() const -> const T& { return std::get<T>(inner_); }
 
+    [[nodiscard]] auto kind() const -> Kind {
+        return kind_of_symbol(inner_);
+    }
+
     [[nodiscard]] static auto kind_of_symbol(const ValueType& value) -> Kind {
         if (std::holds_alternative<IRProc>(value)) { return Kind::Proc; }
         if (std::holds_alternative<IRVar>(value)) { return Kind::Var; }
@@ -161,5 +165,49 @@ struct IRSymbol {
 auto lower(Ctx* ctx, const Vec<Box<frontend::Expr>>& ast, frontend::SemaDone token) -> Vec<IRSymbol>;
 
 } // namespace fiska::assembler::backend
+
+// Support formatting |IRValue|s.
+template <>
+struct fmt::formatter<fiska::assembler::backend::IRValue> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const fiska::assembler::backend::IRValue irvalue, FormatContext& ctx) const -> decltype(ctx.out()) {
+        return fmt::format_to(ctx.out(), "[ '{}', {} ]", irvalue.symbol_name_, irvalue.addend_);
+    }
+};
+
+// Support formatting register ids.
+template <>
+struct fmt::formatter<fiska::assembler::backend::IRX86Op> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const fiska::assembler::backend::IRX86Op op, FormatContext& ctx) const -> decltype(ctx.out()) {
+        if (op.r()) {
+            return fmt::format_to(ctx.out(), "IRReg {{ {}, {} }}", op.as_r().bw_, op.as_r().ri_); 
+        }
+
+        if (op.m()) {
+            return fmt::format_to(ctx.out(),
+                "IRMem {{ {}, {}, {}, {} }}",
+                op.as_m().bw_, op.as_m().bri_, +op.as_m().scale_,
+                op.as_m().disp_
+            );
+        }
+
+        if (op.i()) {
+            return fmt::format_to(ctx.out(),
+                "IRImm {{ {}, {} }}", op.as_i().bw_, op.as_i().value_);
+        }
+
+        if (op.mo()) {
+            return fmt::format_to(ctx.out(),
+                "IRMoffs {{ {}, {} }}", op.as_mo().bw_, op.as_mo().addr_);
+        }
+
+        unreachable();
+    }
+};
 
 #endif // __X86_ASSEMBLER_LIB_BACKEND_IR_HH__

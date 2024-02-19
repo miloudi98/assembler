@@ -370,4 +370,102 @@ using Syscall = InstrExprList<
     >
 >;
 
+//https://www.felixcloutier.com/x86/and
+using And = InstrExprList<
+    X86Mnemonic::And,
+
+    // 0x24 ib AND AL, imm8 -- I
+    InstrExpr<
+        OpCode<0x24>,
+        Pat<OpSz::Default, al, imm8>,
+        Emitter<OpEn::I>
+    >,
+
+    // 0x25 iw AND AX, imm16  -- I
+    // 0x25 id AND EAX, imm32 -- I
+    // 0x25 id AND RAX, imm32 -- I
+    InstrExpr<
+        OpCode<0x25>,
+        Or<
+            Pat<OpSz::B16, ax, imm16>,
+            Pat<OpSz::Default, eax, imm32>,
+            Pat<OpSz::B64, rax, imm32>
+        >,
+        Emitter<OpEn::I>
+    >,
+
+    // 0x80 /4 ib AND r/m8, imm8 -- MI
+    InstrExpr<
+        OpCode<0x80>,
+        Pat<OpSz::Default, rm8, imm8>,
+        Emitter<OpEn::MI, SlashDigit::Four>
+    >,
+
+    // 0x81 /4 iw AND r/m16, imm16 -- MI
+    // 0x81 /4 id AND r/m32, imm32 -- MI
+    // 0x81 /4 id AND r/m64, imm32 -- MI
+    InstrExpr<
+        OpCode<0x81>,
+        Or<
+            Pat<OpSz::B16, rm16, imm16>,
+            Pat<OpSz::Default, rm32, imm32>,
+            Pat<OpSz::B64, rm64, imm32>
+        >,
+        Emitter<OpEn::MI, SlashDigit::Four>
+    >,
+
+    // 0x83 /4 ib AND r/m16, imm8 -- MI
+    // 0x84 /4 ib AND r/m32, imm8 -- MI
+    // 0x84 /4 ib AND r/m64, imm8 -- MI
+    InstrExpr<
+        OpCode<0x83>,
+        Or<
+            Pat<OpSz::B16, rm16, imm8>,
+            Pat<OpSz::Default, rm32, imm8>,
+            Pat<OpSz::B64, rm64, imm8>
+        >,
+        Emitter<OpEn::MI, SlashDigit::Four>
+    >,
+
+    // 0x20 /r AND r/m8, r8 -- MR
+    InstrExpr<
+        OpCode<0x20>,
+        Pat<OpSz::Default, rm8, r8>,
+        Emitter<OpEn::MR>
+    >,
+
+    // 0x21 /r AND r/m16, r16 -- MR
+    // 0x21 /r AND r/m32, r32 -- MR
+    // 0x21 /r AND r/m64, r64 -- MR
+    InstrExpr<
+        OpCode<0x21>,
+        Or<
+            Pat<OpSz::B16, rm16, r16>,
+            Pat<OpSz::Default, rm32, r32>,
+            Pat<OpSz::B64, rm64, r64>
+        >,
+        Emitter<OpEn::MR>
+    >,
+
+    // 0x20 /r AND r8, r/m8 -- MR
+    InstrExpr<
+        OpCode<0x22>,
+        Pat<OpSz::Default, r8, rm8>,
+        Emitter<OpEn::RM>
+    >,
+
+    // 0x23 /r AND r16, r/m16 -- RM
+    // 0x23 /r AND r32, r/m32 -- RM
+    // 0x23 /r AND r64, r/m64 -- RM
+    InstrExpr<
+        OpCode<0x23>,
+        Or<
+            Pat<OpSz::B16, r16, rm16>,
+            Pat<OpSz::Default, r32, rm32>,
+            Pat<OpSz::B64, r64, rm64>
+        >,
+        Emitter<OpEn::RM>
+    >
+>;
+
 #endif // __X86_ASSEMBLER_LIB_BACKEND_CODEGEN_X86INSTRUCTIONS_X86_INSTRUCTIONS_SHARD_0_HH__

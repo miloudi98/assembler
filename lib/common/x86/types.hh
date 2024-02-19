@@ -9,10 +9,7 @@ namespace fiska::assembler {
 enum struct X86Mnemonic {
     Invalid,
 
-    Mov,
-    Add,
-    Adc,
-    Syscall,
+    Mov, Add, Adc, Syscall, And
 };
 
 // Bit width.
@@ -205,6 +202,7 @@ struct X86Info {
     static const utils::StringMap<BW> kBitWidths;
 
     static auto symbol_binding_and_type(u8 b, u8 t) -> u8 { return (b << 4) | (t & 0x0f); }
+    static auto symbol_relocation_info(u64 sym_idx, u32 relocation_type) -> u64 { return (sym_idx << 32) | relocation_type; }
     static auto bit_width(StrRef bw) -> BW { return utils::strmap_get(kBitWidths, bw); }
     static auto register_id(StrRef ri) -> RI { return utils::strmap_get(kRegIds, ri); }
     static auto mnemonic(StrRef mmic) -> X86Mnemonic { return utils::strmap_get(kMnemonics, mmic); }
@@ -215,6 +213,22 @@ struct X86Info {
 };
 
 }  // namespace fiska::assembler
+
+// Support formatting mnemonics.
+template <>
+struct fmt::formatter<fiska::assembler::X86Mnemonic> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const fiska::assembler::X86Mnemonic mmic, FormatContext& ctx) const -> decltype(ctx.out()) {
+        for (const auto& [mmic_str, mmic_enum] : fiska::assembler::X86Info::kMnemonics) {
+            if (mmic_enum == mmic) {
+                return fmt::format_to(ctx.out(), "{}", mmic_str);
+            }
+        }
+        return fmt::format_to(ctx.out(), "{{Unkown mnemonic}}");
+    }
+};
 
 // Support formatting bit widths.
 template <>
@@ -237,6 +251,22 @@ struct fmt::formatter<fiska::assembler::BW> {
             unreachable();
         }();
         return fmt::format_to(ctx.out(), "{}", str_of_bw);
+    }
+};
+
+// Support formatting register ids.
+template <>
+struct fmt::formatter<fiska::assembler::RI> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const fiska::assembler::RI ri, FormatContext& ctx) const -> decltype(ctx.out()) {
+        for (const auto& [ri_str, ri_enum] : fiska::assembler::X86Info::kRegIds) {
+            if (ri_enum == ri) {
+                return fmt::format_to(ctx.out(), "{}", ri_str);
+            }
+        }
+        return fmt::format_to(ctx.out(), "{{Unkown rid}}");
     }
 };
 #endif // __X86_ASSEMBLER_LIB_COMMON_X86_TYPES_HH__

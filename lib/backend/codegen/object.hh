@@ -6,7 +6,7 @@
 namespace fiska::assembler::backend {
 
 struct IRSymbol;
-auto gen(const Vec<IRSymbol>& ir_symbols) -> ByteVec;
+auto gen(const Vec<IRSymbol>& ir_symbols, const fs::path& out_path) -> void;
 
 } // namespace fiska::assembler::backend
 
