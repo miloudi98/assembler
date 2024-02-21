@@ -83,14 +83,16 @@ struct X86ByteCode {
         i64 addend_{};
         u8 type_{};
         u8 i_offset_{};
+
+        auto valid() const -> i1 { return not symbol_name_.empty(); }
     };
 
     u8 bytecode_[X86Info::kMaxInstrLength]{};
     u8 bytecode_sz_{};
     Vec<Relocation> rels_;
 
-    auto begin() -> u8* { return bytecode_; }
-    auto end() -> u8* { return bytecode_ + size(); }
+    auto begin() const -> const u8* { return bytecode_; }
+    auto end() const -> const u8* { return bytecode_ + size(); }
     auto size() const -> u8 { return bytecode_sz_; }
     auto empty() const -> i1 { return bytecode_sz_ == 0; }
     auto add(BW bw, u64 qword) -> void;
@@ -210,18 +212,27 @@ struct Emitter<OpEn::OI> {
 
         Rex rex {
             .b = reg.as_r().req_ext(),
-                .w = opsz == OpSz::B64 
+            .w = opsz == OpSz::B64 
         };
 
         // Include the register index in the opcode. 
-        // It is a bit awkward since we chose to pack all the bytes of an 
-        // opcode into one single quadword instead of storing them in say a vector.
+        // It is a bit awkward since we chose to pack all the bytes of the 
+        // opcode into one single quadword instead of storing them in a collection that we
+        // can index into.
+        //
+        // 1 byte opcode.
         if (std::bit_width(opcode) <= 8) {
             opcode |= reg.ndx();
+
+        // 2 byte opcode.
         } else if (std::bit_width(opcode) <= 16) {
             opcode |= u64(reg.ndx() << 8);
+
+        // 3 byte opcode.
         } else if (std::bit_width(opcode) <= 24) {
             opcode |= u64(reg.ndx() << 16);
+
+        // An opcode can not exceed 3 bytes in size.
         } else {
             unreachable();
         }
@@ -283,14 +294,16 @@ struct Emitter<OpEn::MI, slash_digit> {
             if (rm.req_reloc()) {
                 out.add_relocation(rm);
             }
-            out.add(rm.as_m().disp_bw(), rm.req_reloc() * u64(rm.as_m().disp_.addend_));
+            out.add(rm.as_m().disp_bw(), (not rm.req_reloc()) * u64(rm.as_m().disp_.addend_));
         }
 
         // Immediate.
         if (imm.req_reloc()) {
             out.add_relocation(imm);
         }
-        out.add(imm.as_i().bw_, imm.req_reloc() * u64(imm.as_i().value_.addend_));
+        // BUG: we should use |not operadn.req_reloc()| in our arithmetic and not the negation of that.
+        // It's fixed here but this bug is still in some other parts of the emitter you need to fix it.
+        out.add(imm.as_i().bw_, (not imm.req_reloc()) * u64(imm.as_i().value_.addend_));
 
         return out;
     }
@@ -321,7 +334,7 @@ struct Emitter<OpEn::I> {
         if (imm.req_reloc()) {
             out.add_relocation(imm);
         }
-        out.add(imm.as_i().bw_, imm.req_reloc() * u64(imm.as_i().value_.addend_));
+        out.add(imm.as_i().bw_, (not imm.req_reloc()) * u64(imm.as_i().value_.addend_));
 
         return out;
     }

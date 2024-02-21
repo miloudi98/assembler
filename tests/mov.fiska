@@ -1,7 +1,11 @@
 section text {
 
 fn _start {
-    mov(@b64 [rax] + 0x11223344, b32 disp);
+    mov(@b64 [rax][1 + 2 + 2 - 1 + 1][rcx] + 0x11223344, b32 second_function);
+}
+
+fn second_function {
+    mov(b64 rax, b64 rbx);
 }
 
 }

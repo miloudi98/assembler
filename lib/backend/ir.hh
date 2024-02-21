@@ -13,7 +13,7 @@ struct IRValue {
     StrRef symbol_name_;
     i64 addend_{};
 
-    auto req_reloc() const -> i1 { return symbol_name_.empty(); }
+    auto req_reloc() const -> i1 { return not symbol_name_.empty(); }
     auto has_value() const -> i1 { return addend_ != 0; }
 };
 

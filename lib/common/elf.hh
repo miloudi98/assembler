@@ -82,6 +82,7 @@ enum {
     SHF_WRITE = (1 << 0),
     SHF_ALLOC = (1 << 1),
     SHF_EXECINSTR = (1 << 2),
+    SHF_INFO_LINK = 0x40,
 };
 
 // x86-64 relocations.
@@ -176,7 +177,7 @@ struct Elf64_Rel {
 struct Elf64_Rela {
     u64 r_offset;
     u64 r_info;
-    u32 r_addend;
+    i64 r_addend;
 };
 
 struct ELFInfo {

@@ -12,10 +12,12 @@ struct Parser {
     TokStream tok_stream_;
     StrRef section_;
 
-    explicit Parser(Ctx* ctx, u16 fid) :
-        ctx_(ctx), fid_(fid), tok_stream_(lex(ctx, fid)) 
-    {}
+    explicit Parser(Ctx* ctx, u16 fid);
 };
+
+Parser::Parser(Ctx* ctx, u16 fid) 
+    : ctx_(ctx), fid_(fid), tok_stream_(lex(ctx, fid))
+{}
 
 
 #define track_span(expr)                                         \
@@ -387,6 +389,7 @@ auto fiska::assembler::frontend::parse(Ctx* ctx, u16 fid) -> Vec<Box<Expr>> {
     Parser p(ctx, fid);
     Vec<Box<Expr>> ast;
 
+    // need a parse section function here.
     while (not at(&p, TK::Eof)) {
         ingest(&p, TK::Section, TK::Ident, TK::LBrace);
         p.section_ = peek(&p, -2).str_;

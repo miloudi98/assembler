@@ -121,10 +121,11 @@ struct Expr {
     Span span_{};
 
     Expr() = default;
-    /* implicit */Expr(InnerType expr) :
-        kind_(kind_of_expr(expr)), inner_(std::move(expr)) {}
-    Expr(Expr&& o) : 
-        kind_(o.kind_), inner_(std::move(o.inner_)), span_(o.span_) {}
+
+    Expr(InnerType expr) : kind_(kind_of_expr(expr)), inner_(std::move(expr)) {}
+
+    Expr(Expr&& o) : kind_(o.kind_), inner_(std::move(o.inner_)), span_(o.span_) {}
+
     Expr& operator=(Expr&& o) {
         kind_ = o.kind_;
         inner_ = std::move(o.inner_);
