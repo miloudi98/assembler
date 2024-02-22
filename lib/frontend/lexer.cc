@@ -4,30 +4,7 @@
 
 namespace fiska::assembler::frontend {
 namespace {
-
-// Forward declarations.
-struct Lexer;
-auto next_tok_helper(Lexer*, Tok*) -> void;
-auto next(Lexer*) -> void;
-
-struct Lexer {
-    const char* cur_{};
-    const char* end_{};
-    Ctx* ctx_{};
-    u16 fid_{};
-    char c_{};
-    TokStream tok_stream_;
-
-    explicit Lexer(Ctx* ctx, u16 fid) :
-        cur_(ctx->files_[fid]->data()),
-        end_(ctx->files_[fid]->data() + ctx->files_[fid]->size()),
-        ctx_(ctx), fid_(fid)
-    {
-        // Initialize |c_| with the first character of the file.
-        next(this);
-    }
-};
-
+    
 const utils::StringMap<TK> kKeywords = {
     {"fn", TK::Fn}, {"let", TK::Let}, {"section", TK::Section},
     {"b8", TK::BitWidth}, {"b16", TK::BitWidth}, {"b32", TK::BitWidth}, {"b64", TK::BitWidth},
@@ -57,222 +34,232 @@ constexpr auto continues_ident(char c) -> i1 {
     return c == '_' or std::isalnum(static_cast<u8>(c));
 }
 
-auto file_start(Lexer* lxr) -> const char* {
-    return lxr->ctx_->files_[lxr->fid_]->data();
-}
+struct Lexer {
+    const char* cur_{};
+    const char* end_{};
+    Ctx* ctx_{};
+    u16 fid_{};
+    char c_{};
+    TokStream tok_stream_;
 
-auto curr_offset(Lexer* lxr) -> u32 {
-    assert(lxr->cur_ >= file_start(lxr) + 1, "u32 overflow detected.");
-    return u32(lxr->cur_ - file_start(lxr) - 1);
-}
-
-auto eof(Lexer* lxr) -> i1 { 
-    return lxr->cur_ >= lxr->end_;
-}
-
-auto next(Lexer* lxr) -> void {
-    lxr->c_ = eof(lxr) ? 0 : *lxr->cur_;
-    lxr->cur_ += not eof(lxr);
-}
-
-auto peek(Lexer* lxr, i32 idx = 0) -> char {
-    assert(lxr->cur_ + idx >= lxr->cur_ and lxr->cur_ + idx < lxr->end_, "Index out of bounds.");
-    return *(lxr->cur_ + idx);
-}
-
-auto skip_whitespace(Lexer* lxr) -> void {
-    while (lxr->c_ and std::isspace(lxr->c_)) { next(lxr); }
-}
-
-auto next_tok(Lexer* lxr) -> void {
-    Tok* tok = lxr->tok_stream_.alloc();
-    tok->span_.fid_ = lxr->fid_;
-    next_tok_helper(lxr, tok);
-}
-
-auto lex_line_comment(Lexer* lxr) -> void {
-    // Eat '//'.
-    next(lxr);
-    next(lxr);
-
-    while (not eof(lxr) and lxr->c_ != '\n') { next(lxr); }
-}
-
-auto lex_str_lit(Lexer* lxr, Tok* tok) -> void {
-    // Eat the opening '"'.
-    next(lxr);
-
-    while (not eof(lxr) and lxr->c_ != '"') { next(lxr); }
-
-    tok->kind_ = TK::StrLit;
-    tok->str_ = lxr->ctx_->str_pool_.save( StrRef{file_start(lxr) + tok->span_.pos_, curr_offset(lxr) - tok->span_.pos_} );
-    tok->span_.len_ = u16(tok->str_.size());
-
-    // Eat the closing '"' or emit an error.
-    if (lxr->c_ != '"') {
-        Diagnostic{lxr->ctx_, "Missing enclosing '\"'.", lxr->tok_stream_.back().span_};
+    explicit Lexer(Ctx* ctx, u16 fid) :
+        cur_(ctx->files_[fid]->data()),
+        end_(ctx->files_[fid]->data() + ctx->files_[fid]->size()),
+        ctx_(ctx), fid_(fid)
+    {
+        // Initialize |c_| with the first character of the file.
+        next();
     }
-    next(lxr);
 
-}
+    auto file_data() const -> const char* {
+        return ctx_->files_[fid_]->data();
+    }
 
-auto lex_num(Lexer* lxr, Tok* tok) -> void {
-    do {
-        next(lxr);
-    } while (std::isalnum(static_cast<u8>(lxr->c_)));
+    auto cur_offset() const -> u32 {
+        assert(cur_ >= file_data() + 1, "Unsigned overflow.");
+        return u32(cur_ - file_data() - 1);
+    }
+    
+    auto eof() const -> i1 { return cur_ >= end_; }
 
-    tok->kind_ = TK::Num;
-    tok->str_ = lxr->ctx_->str_pool_.save( StrRef{file_start(lxr) + tok->span_.pos_, curr_offset(lxr) - tok->span_.pos_} );
-    tok->span_.len_ = u16(tok->str_.size());
-}
+    auto next() -> void {
+        c_ = eof() ? 0 : *cur_;
+        cur_ += not eof();
+    }
 
-auto lex_ident(Lexer* lxr, Tok* tok) -> void {
-    do {
-        next(lxr);
-    } while (continues_ident(lxr->c_));
+    auto peek(i32 idx = 0) const -> char {
+        assert(cur_ + idx >= cur_ and cur_ + idx < end_, "Index out of bounds.");
+        return *(cur_ + idx);
+    }
 
-    tok->str_ = lxr->ctx_->str_pool_.save(StrRef{file_start(lxr) + tok->span_.pos_, curr_offset(lxr) - tok->span_.pos_});
-    tok->kind_ = kKeywords.contains(tok->str_) ? utils::strmap_get(kKeywords, tok->str_) : TK::Ident;
-    tok->span_.len_ = u16(tok->str_.size());
-}
+    auto tok() -> Tok& {
+        assert(not tok_stream_.empty());
+        return tok_stream_.back();
+    }
 
-auto next_tok_helper(Lexer* lxr, Tok* tok) -> void {
-    skip_whitespace(lxr);
-
-    tok->span_.pos_ = curr_offset(lxr);
-
-    switch (lxr->c_) {
-    case 0: {
-        next(lxr);
-        tok->kind_ = TK::Eof;
-        break;
-    }
-    case ',': {
-        next(lxr);
-        tok->kind_ = TK::Comma;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case ':': {
-        next(lxr);
-        tok->kind_ = TK::Colon;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '=': {
-        next(lxr);
-        tok->kind_ = TK::Eq;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case ';': {
-        next(lxr);
-        tok->kind_ = TK::SemiColon;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '(': {
-        next(lxr);
-        tok->kind_ = TK::LParen;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case ')': {
-        next(lxr);
-        tok->kind_ = TK::RParen;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '{': {
-        next(lxr);
-        tok->kind_ = TK::LBrace;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '}': {
-        next(lxr);
-        tok->kind_ = TK::RBrace;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '[': {
-        next(lxr);
-        tok->kind_ = TK::LBracket;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case ']': {
-        next(lxr);
-        tok->kind_ = TK::RBracket;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '@': {
-        next(lxr);
-        tok->kind_ = TK::At;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '+': {
-        next(lxr);
-        tok->kind_ = TK::Plus;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '-': {
-        next(lxr);
-        tok->kind_ = TK::Minus;
-        tok->span_.len_ = 1;
-        break;
-    }
-    case '/': {
-        if (peek(lxr) == '/') {
-            lex_line_comment(lxr);
-            return next_tok_helper(lxr, tok);
-        } else {
-            next(lxr);
-            tok->span_.len_ = 1;
-            tok->kind_ = TK::Slash;
+    auto skip_whitespace() -> void {
+        while (c_ and std::isspace(static_cast<u8>(c_))) {
+            next();
         }
-        break;
     }
-    case '"': {
-        lex_str_lit(lxr, tok);
-        break;
+
+    auto lex_line_comment() -> void {
+        // Eat '//'.
+        next();
+        next();
+
+        while (not eof() and c_ != '\n') { 
+            next();
+        }
     }
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9': {
-        lex_num(lxr, tok);
-        break;
+
+    auto lex_num() -> void {
+        do {
+            next();
+        } while (std::isalnum(static_cast<u8>(c_)));
+
+        tok().kind_ = TK::Num;
+        tok().str_ = ctx_->str_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
     }
-    default: {
-        if (starts_ident(lxr->c_)) {
-            lex_ident(lxr, tok);
+
+    auto lex_ident() -> void {
+        do {
+            next();
+        } while (continues_ident(c_));
+
+        tok().str_ = ctx_->str_pool_.save(StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_});
+        tok().kind_ = kKeywords.contains(tok().str_) ? utils::strmap_get(kKeywords, tok().str_) : TK::Ident;
+    }
+
+    auto lex_str_lit() -> void {
+        // Eat the opening '"'.
+        next();
+
+        while (not eof() and c_ != '"') { next(); }
+
+        tok().kind_ = TK::StrLit;
+        tok().str_ = ctx_->str_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
+
+        // Eat the closing '"' or emit an error.
+        assert(c_ == '"');
+        next();
+    }
+
+    auto next_tok() -> void {
+        tok_stream_.alloc();
+        next_tok_impl();
+    }
+
+    auto next_tok_impl() -> void {
+        skip_whitespace();
+
+        tok().span_.fid_ = fid_;
+        tok().span_.pos_ = cur_offset();
+
+        switch (c_) {
+        case 0: {
+            next();
+            tok().kind_ = TK::Eof;
             break;
         }
+        case ',': {
+            next();
+            tok().kind_ = TK::Comma;
+            break;
+        }
+        case ':': {
+            next();
+            tok().kind_ = TK::Colon;
+            break;
+        }
+        case '=': {
+            next();
+            tok().kind_ = TK::Eq;
+            break;
+        }
+        case ';': {
+            next();
+            tok().kind_ = TK::SemiColon;
+            break;
+        }
+        case '(': {
+            next();
+            tok().kind_ = TK::LParen;
+            break;
+        }
+        case ')': {
+            next();
+            tok().kind_ = TK::RParen;
+            break;
+        }
+        case '{': {
+            next();
+            tok().kind_ = TK::LBrace;
+            break;
+        }
+        case '}': {
+            next();
+            tok().kind_ = TK::RBrace;
+            break;
+        }
+        case '[': {
+            next();
+            tok().kind_ = TK::LBracket;
+            break;
+        }
+        case ']': {
+            next();
+            tok().kind_ = TK::RBracket;
+            break;
+        }
+        case '@': {
+            next();
+            tok().kind_ = TK::At;
+            break;
+        }
+        case '+': {
+            next();
+            tok().kind_ = TK::Plus;
+            break;
+        }
+        case '-': {
+            next();
+            tok().kind_ = TK::Minus;
+            break;
+        }
+        case '/': {
+            if (peek() == '/') {
+                lex_line_comment();
+                next_tok_impl();
+                return;
+            } else {
+                next();
+                tok().kind_ = TK::Slash;
+            }
+            break;
+        }
+        case '"': {
+            lex_str_lit();
+            break;
+        }
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9': {
+            lex_num();
+            break;
+        }
+        default: {
+            if (starts_ident(c_)) {
+                lex_ident();
+                break;
+            }
 
-        next(lxr);
-        tok->kind_ = TK::Unknown;
-        tok->span_.len_ = 1;
+            next();
+            tok().kind_ = TK::Unknown;
+        }
+        } // switch
+
+        // Set the length of the token.
+        tok().span_.len_ = (not eof()) * u16(cur_offset() - tok().span_.pos_ - 1);
+        tok().span_.len_ += tok().is_one_char_token();
     }
-    } // switch
-}
+};
 
 } // namespace
 } // namespace fiska::assembler::frontend
 
 auto fiska::assembler::frontend::lex(Ctx* ctx, u16 fid) -> TokStream {
     Lexer lxr(ctx, fid);
-    while (lxr.tok_stream_.empty() or lxr.tok_stream_.back().kind_ != TK::Eof) {
-        next_tok(&lxr);
-    }
+    do {
+        lxr.next_tok();
+    } while (lxr.tok().kind_ != TK::Eof);
+
     return std::move(lxr.tok_stream_);
 }

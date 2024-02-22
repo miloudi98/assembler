@@ -7,7 +7,7 @@
 namespace fiska::assembler::frontend {
 
 // Token kind.
-enum struct TK {
+enum struct TK : i32 {
     Invalid,
 
     // One character tokens.
@@ -72,6 +72,11 @@ struct Tok {
     Span span_{};
     TK kind_ = TK::Invalid;
     StrRef str_{};
+
+    auto is_one_char_token() const -> i1 {
+        return (+kind_ >= +TK::LParen) 
+            and (+kind_ <= +TK::Eq);
+    }
 };
 
 struct TokStream {
@@ -84,6 +89,10 @@ struct TokStream {
     TokStream(TokStream&& other) : storage_(std::move(other.storage_)) {}
 
     auto alloc() -> Tok* { return &storage_.emplace_back(); }
+    auto begin() -> Storage::iterator { return storage_.begin(); }
+    auto back() -> Tok& { return storage_.back(); }
+    auto end() -> Storage::iterator { return storage_.end(); }
+
     auto size() const -> u64 { return storage_.size(); }
     auto back() const -> const Tok& { return storage_.back(); }
     auto empty() const -> i1 { return storage_.empty(); }

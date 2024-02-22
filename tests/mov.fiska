@@ -1,11 +1,8 @@
 section text {
 
 fn _start {
-    mov(@b64 [rax][1 + 2 + 2 - 1 + 1][rcx] + 0x11223344, b32 second_function);
+    mov(b64 rax, @b64 [rax][2][rbx][disp] + 0x11233);
+    mov(b64 rax, @b64 disp + 0x1234);
 }
 
-fn second_function {
-    mov(b64 rax, b64 rbx);
-}
-
-}
+} // .text
