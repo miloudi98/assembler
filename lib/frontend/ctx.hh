@@ -40,6 +40,22 @@ struct InvalidStartOfExpr {
     static constexpr StrRef fmt_string = "Token '{}' does not start a valid expression.";
 };
 
+struct InvalidX86Op {
+    static constexpr StrRef fmt_string = "Token '{}' does not start a valid x86 operand.";
+};
+
+struct ExpectedComma {
+    static constexpr StrRef fmt_string = "Expected ','.";
+};
+
+struct InvalidX86Mnemonic {
+    static constexpr StrRef fmt_string = "Unrecognized x86 mnemonic: '{}'.";
+};
+
+struct IllegalSymbolStart {
+    static constexpr StrRef fmt_string = "Token '{}' does not start a valid symbol.";
+};
+
 template <typename ErrorKind>
 struct Diag {
     template <typename... Args>

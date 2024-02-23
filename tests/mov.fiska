@@ -1,4 +1,4 @@
-section text {
+section .text {
 
 fn _start {
     mov(b64 rax, @b64 [rax][2][rbx] + disp + 0x11233);

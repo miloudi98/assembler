@@ -36,6 +36,8 @@ constexpr auto continues_ident(char c) -> i1 {
 }
 
 struct Lexer {
+    struct SectionIdentTag {};
+
     const char* cur_{};
     const char* end_{};
     Ctx* ctx_{};
@@ -77,6 +79,11 @@ struct Lexer {
         assert(not tok_stream_.empty());
         return tok_stream_.back();
     }
+    
+    auto last_tok_lexed() -> Tok {
+        if (tok_stream_.size() < 2) { return Tok{}; }
+        return tok_stream_[i32(tok_stream_.size()) - 2];
+    }
 
     auto skip_whitespace() -> void {
         while (c_ and std::isspace(static_cast<u8>(c_))) {
@@ -88,7 +95,6 @@ struct Lexer {
         // Eat '//'.
         next();
         next();
-
         while (not eof() and c_ != '\n') { 
             next();
         }
@@ -98,7 +104,6 @@ struct Lexer {
         do {
             next();
         } while (std::isalnum(static_cast<u8>(c_)));
-
         tok().kind_ = TK::Num;
         tok().str_ = ctx_->string_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
     }
@@ -107,7 +112,14 @@ struct Lexer {
         do {
             next();
         } while (continues_ident(c_));
+        tok().str_ = ctx_->string_pool_.save(StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_});
+        tok().kind_ = kKeywords.contains(tok().str_) ? utils::strmap_get(kKeywords, tok().str_) : TK::Ident;
+    }
 
+    auto lex_ident(SectionIdentTag) -> void {
+        do {
+            next();
+        } while (continues_ident(c_) or c_ == '.');
         tok().str_ = ctx_->string_pool_.save(StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_});
         tok().kind_ = kKeywords.contains(tok().str_) ? utils::strmap_get(kKeywords, tok().str_) : TK::Ident;
     }
@@ -115,12 +127,9 @@ struct Lexer {
     auto lex_str_lit() -> void {
         // Eat the opening '"'.
         next();
-
         while (not eof() and c_ != '"') { next(); }
-
         tok().kind_ = TK::StrLit;
         tok().str_ = ctx_->string_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
-
         // Eat the closing '"' or emit an error.
         assert(c_ == '"');
         next();
@@ -239,6 +248,10 @@ struct Lexer {
         default: {
             if (starts_ident(c_)) {
                 lex_ident();
+                break;
+            }
+            if (c_ == '.' and last_tok_lexed().kind_ == TK::Section) {
+                lex_ident(SectionIdentTag{});
                 break;
             }
 

@@ -2,12 +2,13 @@
 #define __X86_ASSEMBLER_LIB_FRONTEND_PARSER_HH__
 
 #include "lib/common/base.hh"
-#include "lib/frontend/ast.hh"
 
 namespace fiska::assembler::frontend {
 
 struct Ctx;
-auto parse(Ctx*, u16 fid) -> Vec<Box<Expr>>;
+struct Section;
+
+auto parse(Ctx*, u16 fid) -> Vec<Section>;
 
 } // namespace fiska::assembler::frontend
 

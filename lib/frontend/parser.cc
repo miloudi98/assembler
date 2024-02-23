@@ -2,6 +2,7 @@
 #include "lib/common/base.hh"
 #include "lib/common/support.hh"
 
+#include "lib/frontend/ast.hh"
 #include "lib/frontend/lexer.hh"
 #include "lib/frontend/ctx.hh"
 #include "lib/frontend/token.hh"
@@ -77,15 +78,21 @@ struct Parser {
         ctx_(ctx), fid_(fid), tok_stream_(lex(ctx, fid))
     {}
 
-    template <typename ErrorKind>
-    [[noreturn]] auto Error(Span span, auto&&... args) -> void {
+    template <typename ErrorKind, typename... Args>
+    [[noreturn]] auto Error(Span span, Args&&... args) -> void {
         Diag<ErrorKind>(ctx_, span, FWD(args)...);
+    }
+    
+    template <typename ErrorKind, typename... Args>
+    [[noreturn]] auto Error(Args&&... args) -> void {
+        Diag<ErrorKind>(ctx_, tok().span_, FWD(args)...);
     }
 
     auto tok() const -> const Tok& { return tok_stream_[tok_idx_]; }
 
+    auto last_tok() const -> const Tok& { return tok_stream_[tok_idx_ - 1]; }
+
     auto peek(i32 idx = 0) const -> const Tok& {
-        // Bounds checking happens inside the |TokStream| class.
         return tok_stream_[tok_idx_ + idx];
     }
 
@@ -93,7 +100,23 @@ struct Parser {
         return ((tok().kind_ == tk) or ...);
     }
 
-    auto advance() -> void { tok_idx_++; }
+    auto advance(std::same_as<TK> auto... tk) -> void {
+        if constexpr (sizeof...(tk) == 0) {
+            tok_idx_++;
+
+        } else {
+            auto check = [&](TK tk) {
+                if (not consume(tk)) Error<UnexpectedToken>(tk, tok().kind_);
+            };
+            (check(tk), ...);
+        }
+    }
+
+    auto next(std::same_as<TK> auto... tk) -> const Tok& {
+        const Tok& cur = tok();
+        advance(tk...);
+        return cur;
+    }
 
     auto consume(std::same_as<TK> auto... tk) -> i1 {
         if (at(tk...)) {
@@ -101,13 +124,6 @@ struct Parser {
             return true;
         }
         return false;
-    }
-
-    auto ingest(std::same_as<TK> auto... tk) -> void {
-        auto check = [&](TK tk) {
-            if (not consume(tk)) Error<UnexpectedToken>(tok().span_, tk, tok().kind_);
-        };
-        (check(tk), ...);
     }
 
     auto match(std::same_as<TK> auto... tk) -> i1 {
@@ -120,57 +136,52 @@ struct Parser {
         auto start_span = tok().span_;
 
         switch (peek().kind_) {
-        default: Error<InvalidStartOfExpr>(tok().span_, tok().kind_);
+        default: Error<InvalidStartOfExpr>(tok().kind_);
 
         case TK::Ident: {
-            lhs = new (ctx_) LabelExpr(tok().str_, tok().span_);
-            advance();
+            Tok ident = next();
+            lhs = new (ctx_) LabelExpr(ident.str_, ident.span_);
             break;
         }
         case TK::Num: {
             Opt<u64> num = parse_i64(tok().str_);
-            if (not num) Error<InvalidNumber>(tok().span_, tok().str_);
-            lhs = new (ctx_) IntExpr(*num, tok().span_);
-            advance();
+            if (not num) Error<InvalidNumber>(tok().str_);
+            lhs = new (ctx_) IntExpr(*num, next().span_);
             break;
         }
         case TK::StrLit: {
-            StrRef lit = tok().str_;
+            Tok str_lit = next();
             // Trim the enclosing '"'.
-            lit.remove_prefix(1);
-            lit.remove_suffix(1);
-
-            lhs = new (ctx_) StrExpr(lit, tok().span_);
-            advance();
+            str_lit.str_.remove_prefix(1);
+            str_lit.str_.remove_suffix(1);
+            lhs = new (ctx_) StrExpr(str_lit.str_, str_lit.span_);
             break;
         }
         case TK::Plus:
         case TK::Minus: {
-            i8 prefix_prec = prefix_op_weight(tok().kind_);
-            // Consume the unary operator.
-            advance();
+            Tok op = next();
+            i8 prefix_prec = prefix_op_weight(op.kind_);
             Expr* inner = parse_expression(prefix_prec);
-            lhs = new (ctx_) UnaryOpExpr(tok(), inner, {start_span, inner->span_});
+            lhs = new (ctx_) UnaryOpExpr(op, inner, {start_span, inner->span_});
             break;
         }
         case TK::LBracket: {
             Vec<Expr*> values; 
-
-            ingest(TK::LBracket);
+            advance(TK::LBracket);
             while (not at(TK::RBracket)) {
                 values.push_back(parse_expression());
-                assert(at(TK::RBracket) or consume(TK::Comma));
+                // Expect a ',' separating the array elements.
+                if (not consume(TK::Comma) and not at(TK::RBracket)) { Error<ExpectedComma>(); }
             }
-            lhs = new (ctx_) ArrayExpr({start_span, tok().span_});
-            ingest(TK::RBracket);
+            advance(TK::RBracket);
+            lhs = new (ctx_) ArrayExpr({start_span, last_tok().span_});
             break;
         }
         } // switch
 
         while (infix_op_weight(peek().kind_) > prec) {
-            Tok op = peek();
+            Tok op = next();
             i8 infix_prec = infix_op_weight(op.kind_);
-            advance();
 
             Expr* rhs = parse_expression(infix_prec);
             lhs = new (ctx_) BinaryOpExpr(op, lhs, rhs, {lhs->span_, rhs->span_});
@@ -182,30 +193,25 @@ struct Parser {
         // Mem.
         if (match(TK::At, TK::BitWidth, TK::LBracket)) {
             auto mem = new (ctx_) MemOp;
-            auto start_span = tok().span_;
-            // Consume '@'.
-            advance();
-            mem->bw_ = X86Info::bit_width(tok().str_);
+            auto start_span = next(TK::At).span_;
             // Consume the bit width.
-            advance();
-            // Consume the '['.
-            advance();
+            mem->bw_ = X86Info::bit_width(next(TK::BitWidth).str_);
+            // Consume the base register if present.
+            advance(TK::LBracket);
             if (at(TK::Reg)) {
-                mem->bri_ = X86Info::register_id(tok().str_);
-                // Consume the base register.
-                advance();
+                mem->bri_ = X86Info::register_id(next(TK::Reg).str_);
             }
-            ingest(TK::RBracket);
+            advance(TK::RBracket);
 
             // Scale and index register.
             if (consume(TK::LBracket)) {
                 // Scale.
                 mem->scale_ = parse_expression();
-                ingest(TK::RBracket);
+                advance(TK::RBracket);
                 // Index register.
-                ingest(TK::LBracket, TK::Reg);
-                mem->iri_ = X86Info::register_id(peek(-1).str_);
-                ingest(TK::RBracket);
+                advance(TK::LBracket);
+                mem->iri_ = X86Info::register_id(next(TK::Reg).str_);
+                advance(TK::RBracket);
             }
 
             // Displacement.
@@ -214,43 +220,114 @@ struct Parser {
             }
 
             // Fix the span.
-            mem->span_ = {start_span, peek(-1).span_};
+            mem->span_ = {start_span, last_tok().span_};
             return mem;
         }
 
         // Mem offset.
         if (match(TK::At, TK::BitWidth)) {
             auto moffs = new (ctx_) MoffsOp;
-            auto start_span = tok().span_;
-            // Consume '@'.
-            advance();
-            moffs->bw_ = X86Info::bit_width(tok().str_);
-            // Consume the bitwidth.
-            advance();
+            auto start_span = next(TK::At).span_;
+
+            moffs->bw_ = X86Info::bit_width(next(TK::BitWidth).str_);
             moffs->addr_ = parse_expression();
             // Fix the span.
-            moffs->span_ = {start_span, peek(-1).span_};
+            moffs->span_ = {start_span, last_tok().span_};
             return moffs;
         }
+
+        // Register.
+        if (match(TK::BitWidth, TK::Reg)) {
+            auto reg = new (ctx_) RegisterOp;
+            auto start_span = tok().span_;
+
+            reg->bw_ = X86Info::bit_width(next(TK::BitWidth).str_);
+            reg->ri_ = X86Info::register_id(next(TK::Reg).str_);
+            reg->span_ = {start_span, last_tok().span_};
+            return reg;
+        }
+
+        // Immediate.
+        if (match(TK::BitWidth)) {
+            auto imm = new (ctx_) ImmOp;
+            auto start_span = tok().span_;
+
+            imm->bw_ = X86Info::bit_width(next(TK::BitWidth).str_);
+            imm->value_ = parse_expression();
+            imm->span_ = {start_span, last_tok().span_};
+            return imm;
+        }
+
+        Error<InvalidX86Op>(tok().kind_);
     }
 
     auto parse_proc() -> Proc* {
-        todo();
+        auto start_span = next(TK::Fn).span_;
+        auto proc = new (ctx_) Proc(next(TK::Ident).str_, {start_span, last_tok().span_});
+        advance(TK::LBrace);
+        while (not at(TK::RBrace)) {
+            proc->body_.push_back(parse_x86_instruction());
+        }
+        advance(TK::RBrace);
+        return proc;
     }
 
     auto parse_var() -> Var* {
-        todo();
+        advance(TK::Let);
+        Tok label = next(TK::Ident, TK::Eq);
+        auto var = new (ctx_) Var(label.span_, label.str_, parse_expression());
+        advance(TK::SemiColon);
+        return var;
     }
 
     auto parse_section() -> Section {
-        todo();
+        advance(TK::Section);
+        Section s(next(TK::Ident).str_);
+        advance(TK::LBrace);
+        while (not at(TK::RBrace)) {
+            s.symbols_.push_back(parse_symbol());
+        }
+        advance(TK::RBrace);
+        return s;
     }
 
-    auto parse_x86_instruction() -> X86Inst {
-        todo();
+    auto parse_x86_instruction() -> X86Inst* {
+        auto inst = new (ctx_) X86Inst;
+        auto start_span = tok().span_;
+
+        if (X86Info::kMnemonics.find(tok().str_) == X86Info::kMnemonics.end()) {
+            Error<InvalidX86Mnemonic>(tok().str_);
+        }
+
+        inst->mnemonic_ = X86Info::mnemonic(next(TK::Ident).str_);
+        advance(TK::LParen);
+        while (not at(TK::RParen)) {
+            inst->ops_.push_back(parse_x86_operand());
+            // Expect ',' between the x86 operands.
+            if (not consume(TK::Comma) and not at(TK::RParen)) { Error<ExpectedComma>(); }
+        }
+        advance(TK::RParen, TK::SemiColon);
+        inst->span_ = {start_span, last_tok().span_};
+        return inst;
+    }
+
+    auto parse_symbol() -> Symbol* {
+        if (at(TK::Fn)) { return parse_proc(); }
+        if (at(TK::Let)) { return parse_var(); }
+        Error<IllegalSymbolStart>(tok().kind_);
     }
 };
 
 } // namespace 
+
+auto parse(Ctx* ctx, u16 fid) -> Vec<Section> {
+    Parser p(ctx, fid);
+    Vec<Section> ret;
+    while (not p.at(TK::Eof)) {
+        ret.push_back(p.parse_section());
+    }
+    return ret;
+}
+
 } // namespace fiska::assembler::frontend
 

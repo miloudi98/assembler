@@ -23,7 +23,7 @@ struct Expr {
         Label,
         BinaryOp,
         UnaryOp,
-        X86Instr,
+        X86Inst,
         Str,
         Array,
 
@@ -145,6 +145,17 @@ struct ArrayExpr : Expr {
     }
 };
 
+struct X86Inst : Expr {
+    X86Mnemonic mnemonic_ = X86Mnemonic::Invalid;
+    Vec<X86Op*> ops_;
+
+    X86Inst() : Expr(Kind::X86Inst) {}
+
+    static auto classof(const Expr* e) -> i1 {
+        return e->kind_ == Kind::X86Inst;
+    }
+};
+
 struct RegisterOp : X86Op {
     BW bw_ = BW::Invalid;
     RI ri_ = RI::Invalid;
@@ -197,17 +208,11 @@ struct MoffsOp : X86Op {
     }
 };
 
-
-struct X86Inst {
-    X86Mnemonic mnemonic_ = X86Mnemonic::Invalid;
-    Vec<X86Op*> ops_;
-};
-
 struct Proc : Symbol {
     StrRef name_;
-    Vec<X86Inst> body_;
+    Vec<X86Inst*> body_;
 
-    Proc(Span s) : Symbol(Expr::Kind::Proc, s) {}
+    Proc(StrRef name, Span s) : Symbol(Expr::Kind::Proc, s), name_(name) {}
 
     static auto classof(const Expr* e) -> i1 {
         return e->kind_ == Kind::Proc;
@@ -215,10 +220,11 @@ struct Proc : Symbol {
 };
 
 struct Var : Symbol {
+    StrRef label_;
     Expr* rvalue_;
 
-    Var(Span s, Expr* rv) : 
-        Symbol(Expr::Kind::Var, s), rvalue_(rv) 
+    Var(Span s, StrRef l, Expr* rv) : 
+        Symbol(Expr::Kind::Var, s), label_(l), rvalue_(rv) 
     {}
 
     static auto classof(const Expr* e) -> i1 {
@@ -233,21 +239,47 @@ struct Section {
     Section(StrRef n) : name_(n) {} 
 };
 
-// Casting between all kinds of expressions.
-template <typename From, typename To>
-auto cast(From* from) -> To* {
-    // Always allow upcasts.
-    if constexpr (std::is_base_of_v<To, From>) {
-        return static_cast<To*>(from);
-    }
-
+// Simple casting mechanism.
+template <typename To>
+auto cast(const Expr* from) -> const To* {
     if (To::classof(from)) {
-        return static_cast<To*>(from);
+        return static_cast<const To*>(from);
     }
-
-    return nullptr;
+    return static_cast<const To*>(nullptr);
 }
 
 } // namespace fiska::assembler::frontend
+
+// Support formatting tokens.
+template <>
+struct fmt::formatter<fiska::assembler::frontend::Expr::Kind> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const fiska::assembler::frontend::Expr::Kind ek, FormatContext& ctx) const -> decltype(ctx.out()) {
+        using fiska::assembler::frontend::Expr;
+
+        auto str_of_ek = [&] {
+            switch (ek) {
+                case Expr::Kind::Invalid: return "<Invalid>";
+                case Expr::Kind::Int: return "<Int>";
+                case Expr::Kind::Label: return "<Label>";
+                case Expr::Kind::BinaryOp: return "<BinaryOp>";
+                case Expr::Kind::UnaryOp: return "<UnaryOp>";
+                case Expr::Kind::X86Inst: return "<X86Inst>";
+                case Expr::Kind::Str: return "<Str>";
+                case Expr::Kind::Array: return "<Array>";
+                case Expr::Kind::Register: return "<Register>";
+                case Expr::Kind::Mem: return "<Mem>";
+                case Expr::Kind::Imm: return "<Imm>";
+                case Expr::Kind::Moffs: return "<Moffs>";
+                case Expr::Kind::Proc: return "<Proc>";
+                case Expr::Kind::Var: return "<Var>";
+            } // switch
+            unreachable();
+        }();
+        return fmt::format_to(ctx.out(), "{}", str_of_ek);
+    }
+};
 
 #endif // __X86_ASSEMBLER_LIB_FRONTEND_AST_HH__
