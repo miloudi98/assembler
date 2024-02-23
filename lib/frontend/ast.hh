@@ -72,9 +72,9 @@ struct Symbol : Expr {
 };
 
 struct IntExpr : Expr {
-    u64 value_{};
+    i64 value_{};
 
-    IntExpr(u64 v, Span s) :
+    IntExpr(i64 v, Span s) :
         Expr(Expr::Kind::Int, s), value_(v)
     {}
 

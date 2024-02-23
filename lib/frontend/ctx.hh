@@ -56,6 +56,42 @@ struct IllegalSymbolStart {
     static constexpr StrRef fmt_string = "Token '{}' does not start a valid symbol.";
 };
 
+struct IntegerAdditionOverflow {
+    static constexpr StrRef fmt_string = "64-bit Integer overflow encountered.";
+};
+
+struct MultipleLabelsInsideExpression {
+    static constexpr StrRef fmt_string = "Multiple labels are not allowed inside a single expression.";
+};
+
+struct IllegalOffsetExpression {
+    static constexpr StrRef fmt_string = "Illegal offset expression found: '{}'.";
+};
+
+struct IllegalSubstractionOnLabel {
+    static constexpr StrRef fmt_string = "A label can not appear on the right hand side of a substraction.";
+};
+
+struct IllegalBinaryOperator {
+    static constexpr StrRef fmt_string = "Illegal binary operator: '{}'.";
+};
+
+struct IllegalUnaryOperator {
+    static constexpr StrRef fmt_string = "Illegal unary operator: '{}'.";
+};
+
+struct LabelFoundInMemScale {
+    static constexpr StrRef fmt_string = "Labels are not allowed in memory index scales.";
+};
+
+struct IllegalMemScaleValue {
+    static constexpr StrRef fmt_string = "Illegal index scale value found: '{}'.";
+};
+
+struct MemDispTooLarge {
+    static constexpr StrRef fmt_string = "Memory displacement: '{}' does not fit in 32-bits.";
+};
+
 template <typename ErrorKind>
 struct Diag {
     template <typename... Args>
