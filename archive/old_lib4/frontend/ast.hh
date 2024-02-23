@@ -3,9 +3,8 @@
 
 #include "lib/common/base.hh"
 #include "lib/common/x86/types.hh"
-#include "lib/common/support.hh"
-#include "lib/frontend/ctx.hh"
 #include "lib/frontend/token.hh"
+#include "lib/common/support.hh"
 
 namespace fiska::assembler::frontend {
 
@@ -41,21 +40,12 @@ struct Expr {
     Kind kind_ = Kind::Invalid;
     Span span_{};
 
-    Expr(Kind k) : kind_(k) {}
     Expr(Kind k, Span s) : kind_(k), span_(s) {}
     virtual ~Expr() = default;
-
-    // Forbid allocating an expression without the owner context.
-    void* operator new(usz sz, Ctx* ctx) {
-        auto expr = static_cast<Expr*>(::operator new(sz));
-        ctx->exprs_.push_back(expr);
-        return expr;
-    }
-    void* operator new(usz sz) = delete;
 };
 
 struct X86Op : Expr {
-    X86Op(Kind k) : Expr(k) {}
+    X86Op(Kind k, Span s) : Expr(k, s) {}
 
     static auto classof(const Expr* e) -> i1 {
         return (e->kind_ >= Kind::Register) and (e->kind_ <= Kind::Moffs);
@@ -72,9 +62,9 @@ struct Symbol : Expr {
 };
 
 struct IntExpr : Expr {
-    u64 value_{};
+    i64 value_{};
 
-    IntExpr(u64 v, Span s) :
+    IntExpr(i64 v, Span s) :
         Expr(Expr::Kind::Int, s), value_(v)
     {}
 
@@ -115,7 +105,7 @@ struct UnaryOpExpr : Expr {
     Expr* inner_{};
 
     UnaryOpExpr(Tok op, Expr* i, Span s) :
-        Expr(Expr::Kind::UnaryOp, s), op_(op), inner_(i)
+        Expr(Expr::Kind::UnaryOp, s), inner_(i), op_(op)
     {}
 
     static auto classof(const Expr* e) -> i1 {
@@ -124,10 +114,10 @@ struct UnaryOpExpr : Expr {
 };
 
 struct StrExpr : Expr {
-    StrRef str_{};
+    StRef str_{};
 
-    StrExpr(StrRef str, Span s) :
-        Expr(Expr::Kind::Str, s), str_(str)
+    Str(StrRef s, Span s) :
+        Expr(Expr::Kind::Str, s), str_(s)
     {}
 
     static auto classof(const Expr* e) -> i1 {
@@ -149,8 +139,8 @@ struct RegisterOp : X86Op {
     BW bw_ = BW::Invalid;
     RI ri_ = RI::Invalid;
 
-    RegisterOp() :
-        X86Op(Expr::Kind::Register)
+    RegisterOp(BW bw, RI ri, Span span) :
+        X86Op(Expr::Kind::Register, span), bw_(bw), ri_(ri)
     {}
 
     static auto classof(const Expr* e) -> i1 {
@@ -165,7 +155,8 @@ struct MemOp : X86Op {
     Expr* scale_{};
     Expr* disp_{};
 
-    MemOp() : X86Op(Expr::Kind::Mem) {}
+    MemOp(Span s) :
+        X86Op(Expr::Kind::Mem, s) {}
 
     static auto classof(const Expr* e) -> i1 {
         return e->kind_ == Kind::Mem;
@@ -176,8 +167,8 @@ struct ImmOp : X86Op {
     BW bw_ = BW::Invalid;
     Expr* value_{};
 
-    ImmOp() :
-        X86Op(Expr::Kind::Imm)
+    ImmOp(BW bw, Expr* v, Span s) :
+        X86Op(Expr::Kind::Imm, s), bw_(bw), value_(v)
     {}
 
     static auto classof(const Expr* e) -> i1 {
@@ -189,7 +180,8 @@ struct MoffsOp : X86Op {
     BW bw_ = BW::Invalid;
     Expr* addr_{};
 
-    MoffsOp() : X86Op(Expr::Kind::Moffs)
+    MoffsOp(BW bw, Expr* a, Span s) :
+        X86Op(Expr::Kind::Moffs, s), addr_(a)
     {}
 
     static auto classof(const Expr* e) -> i1 {
@@ -207,7 +199,7 @@ struct Proc : Symbol {
     StrRef name_;
     Vec<X86Inst> body_;
 
-    Proc(Span s) : Symbol(Expr::Kind::Proc, s) {}
+    ProcDecl() : Decl(Expr::Kind::Proc) {}
 
     static auto classof(const Expr* e) -> i1 {
         return e->kind_ == Kind::Proc;
@@ -217,8 +209,8 @@ struct Proc : Symbol {
 struct Var : Symbol {
     Expr* rvalue_;
 
-    Var(Span s, Expr* rv) : 
-        Symbol(Expr::Kind::Var, s), rvalue_(rv) 
+    Var(Expr* rv) : 
+        Decl(Expr::Kind::Var), rvalue_(rv) 
     {}
 
     static auto classof(const Expr* e) -> i1 {
@@ -228,7 +220,7 @@ struct Var : Symbol {
 
 struct Section {
     StrRef name_;
-    Vec<Symbol*> symbols_;
+    Vec<Decl*> decls_;
 
     Section(StrRef n) : name_(n) {} 
 };

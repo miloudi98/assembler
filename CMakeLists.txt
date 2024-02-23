@@ -18,7 +18,6 @@ endif()
 ## ============================================================================
 ## Third party libraries:
 ## 1. libfmt
-## 2. googletest
 ## ============================================================================
 cmake_policy(SET CMP0135 NEW)
 
@@ -31,14 +30,6 @@ FetchContent_Declare(
 	SOURCE_DIR "${PROJECT_SOURCE_DIR}/third_party/fmt"
 )
 FetchContent_MakeAvailable(libfmt)
-
-message(STATUS "Downloading and installing googletest...")
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/f8d7d77c06936315286eb55f8de22cd23c188571.zip
-  SOURCE_DIR "${PROJECT_SOURCE_DIR}/third_party/googletest"
-)
-FetchContent_MakeAvailable(googletest)
 
 ## ============================================================================
 ## libraries

@@ -3,7 +3,6 @@
 
 #include "lib/common/base.hh"
 #include "lib/frontend/token.hh"
-#include "lib/frontend/ctx.hh"
 
 namespace fiska::assembler::frontend {
 

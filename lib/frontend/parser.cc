@@ -1,33 +1,15 @@
 #include "lib/frontend/parser.hh"
-#include "lib/frontend/lexer.hh"
 #include "lib/common/base.hh"
+#include "lib/common/support.hh"
+
+#include "lib/frontend/lexer.hh"
+#include "lib/frontend/ctx.hh"
+#include "lib/frontend/token.hh"
 
 namespace fiska::assembler::frontend {
 namespace {
 
-struct Parser {
-    Ctx* ctx_{};
-    u16 fid_{};
-    i32 tok_idx_{};
-    TokStream tok_stream_;
-    StrRef section_;
-
-    explicit Parser(Ctx* ctx, u16 fid);
-};
-
-Parser::Parser(Ctx* ctx, u16 fid) 
-    : ctx_(ctx), fid_(fid), tok_stream_(lex(ctx, fid))
-{}
-
-
-#define track_span(expr)                                         \
-    i32 span_start_idx = p->tok_idx_;                            \
-    defer {                                                      \
-        expr->span_ = span_from(p, span_start_idx);              \
-        expr->section_ = p->section_;                            \
-    } 
-
-constexpr auto prefix_prec_of_tok_kind(TK tk) -> i8 {
+constexpr auto prefix_op_weight(TK tk) -> i8 {
     switch (tk) {
     case TK::Plus:
     case TK::Minus:
@@ -36,7 +18,7 @@ constexpr auto prefix_prec_of_tok_kind(TK tk) -> i8 {
     } // switch
 }
 
-constexpr auto infix_prec_of_tok_kind(TK tk) -> i8 {
+constexpr auto infix_op_weight(TK tk) -> i8 {
     switch (tk) {
     case TK::Plus:
     case TK::Minus:
@@ -45,10 +27,7 @@ constexpr auto infix_prec_of_tok_kind(TK tk) -> i8 {
     } // switch
 }
 
-auto parse_i64(Ctx* ctx, const Tok& tok) -> i64 {
-    assert(tok.kind_ == TK::Num);
-
-    StrRef num_lxm = tok.str_;
+auto parse_i64(StrRef num_lxm) -> Opt<u64> {
     u8 radix{};
     if (num_lxm.starts_with("0x")) { radix = 16; num_lxm.remove_prefix(2); }
     else if (num_lxm.starts_with("0b")) { radix = 2; num_lxm.remove_prefix(2); }
@@ -80,339 +59,198 @@ auto parse_i64(Ctx* ctx, const Tok& tok) -> i64 {
         curr.remove_prefix(1);
     }
 
-    if (not curr.empty()) {
-        Diagnostic {
-            ctx,
-            fmt::format("Invalid number: '{}'.", tok.str_),
-            tok.span_
-        };
+    // Error parsing the number.
+    if (not curr.empty()) { 
+        return std::nullopt;
     }
-    return i64(ret);
-}
 
-auto tok(Parser* p) -> const Tok& {
-    return p->tok_stream_[p->tok_idx_];
-}
-
-auto peek(Parser* p, i32 idx = 0) -> const Tok& {
-    return p->tok_stream_[p->tok_idx_ + idx];
-}
-
-auto at(Parser* p, std::same_as<TK> auto... tk) -> i1 {
-    return ((tok(p).kind_ == tk) or ...);
-}
-
-auto advance(Parser* p) -> void {
-    p->tok_idx_++;
-}
-
-auto span_from(Parser* p, i32 starting_idx) -> Span {
-    Span ret = peek(p).span_;
-    while (starting_idx < p->tok_idx_) {
-        ret.include(p->tok_stream_[starting_idx++].span_);
-    }
     return ret;
 }
 
-auto consume(Parser* p, std::same_as<TK> auto... tk) -> i1 {
-    if (not at(p, tk...)) { return false; }
-    advance(p);
-    return true;
-}
+struct Parser {
+    Ctx* ctx_{};
+    u16 fid_{};
+    i32 tok_idx_{};
+    TokStream tok_stream_;
 
-auto ingest(Parser* p, std::same_as<TK> auto... tk) -> void {
-    auto check = [&](TK tk) {
-        if (consume(p, tk)) { return; }
-        Diagnostic {
-            p->ctx_,
-            fmt::format("Expected '{}', found '{}'.", tk, tok(p).kind_),
-            tok(p).span_
-        }; 
-    };
-    (check(tk), ...);
-}
+    explicit Parser(Ctx* ctx, u16 fid) :
+        ctx_(ctx), fid_(fid), tok_stream_(lex(ctx, fid))
+    {}
 
-auto match(Parser* p, std::same_as<TK> auto... tk) -> i1 {
-    i32 idx = 0;
-    return ((peek(p, idx++).kind_ == tk) and ...);
-}
+    template <typename ErrorKind>
+    [[noreturn]] auto Error(Span span, auto&&... args) -> void {
+        Diag<ErrorKind>(ctx_, span, FWD(args)...);
+    }
 
-auto parse_expr(Parser* p, i8 prec = 0) -> Box<Expr> {
-    Box<Expr> lhs = nullptr;
-    track_span(lhs);
+    auto tok() const -> const Tok& { return tok_stream_[tok_idx_]; }
 
-    // Mem.
-    if (match(p, TK::At, TK::BitWidth, TK::LBracket)) {
-        ingest(p, TK::At, TK::BitWidth);
+    auto peek(i32 idx = 0) const -> const Tok& {
+        // Bounds checking happens inside the |TokStream| class.
+        return tok_stream_[tok_idx_ + idx];
+    }
 
-        MemExpr mem {
-            .bw_ = X86Info::bit_width(peek(p, -1).str_)
+    auto at(std::same_as<TK> auto... tk) -> i1 {
+        return ((tok().kind_ == tk) or ...);
+    }
+
+    auto advance() -> void { tok_idx_++; }
+
+    auto consume(std::same_as<TK> auto... tk) -> i1 {
+        if (at(tk...)) {
+            advance();
+            return true;
+        }
+        return false;
+    }
+
+    auto ingest(std::same_as<TK> auto... tk) -> void {
+        auto check = [&](TK tk) {
+            if (not consume(tk)) Error<UnexpectedToken>(tok().span_, tk, tok().kind_);
         };
+        (check(tk), ...);
+    }
 
-        // Base register.
-        ingest(p, TK::LBracket);
-        if (consume(p, TK::Reg)) {
-            mem.bri_ = X86Info::register_id(peek(p, -1).str_);
+    auto match(std::same_as<TK> auto... tk) -> i1 {
+        i32 idx = 0;
+        return ((peek(idx++).kind_ == tk) and ...);
+    }
+
+    auto parse_expression(i8 prec = 0) -> Expr* {
+        Expr* lhs = nullptr;
+        auto start_span = tok().span_;
+
+        switch (peek().kind_) {
+        default: Error<InvalidStartOfExpr>(tok().span_, tok().kind_);
+
+        case TK::Ident: {
+            lhs = new (ctx_) LabelExpr(tok().str_, tok().span_);
+            advance();
+            break;
         }
-        ingest(p, TK::RBracket);
-
-        // Scale and index register.
-        if (consume(p, TK::LBracket)) {
-            // Scale.
-            mem.scale_ = parse_expr(p);
-            ingest(p, TK::RBracket);
-
-            ingest(p, TK::LBracket);
-            ingest(p, TK::Reg);
-            mem.iri_ = X86Info::register_id(peek(p, -1).str_);
-            ingest(p, TK::RBracket);
+        case TK::Num: {
+            Opt<u64> num = parse_i64(tok().str_);
+            if (not num) Error<InvalidNumber>(tok().span_, tok().str_);
+            lhs = new (ctx_) IntExpr(*num, tok().span_);
+            advance();
+            break;
         }
+        case TK::StrLit: {
+            StrRef lit = tok().str_;
+            // Trim the enclosing '"'.
+            lit.remove_prefix(1);
+            lit.remove_suffix(1);
 
-        // Displacement.
-        if (consume(p, TK::Plus, TK::Minus)) {
-            mem.disp_ = std::make_unique<Expr>(
-                BinaryOpExpr {
-                    .op_ = peek(p, -1),
-                    .lhs_ = std::make_unique<Expr>(IntExpr{}),
-                    .rhs_ = parse_expr(p)
-                }
-            );
-            // TODO: Bad hack to fix the phatom span bug.
-            mem.disp_->span_ = mem.disp_->as<BinaryOpExpr>().rhs_->span_;
+            lhs = new (ctx_) StrExpr(lit, tok().span_);
+            advance();
+            break;
         }
+        case TK::Plus:
+        case TK::Minus: {
+            i8 prefix_prec = prefix_op_weight(tok().kind_);
+            // Consume the unary operator.
+            advance();
+            Expr* inner = parse_expression(prefix_prec);
+            lhs = new (ctx_) UnaryOpExpr(tok(), inner, {start_span, inner->span_});
+            break;
+        }
+        case TK::LBracket: {
+            Vec<Expr*> values; 
 
+            ingest(TK::LBracket);
+            while (not at(TK::RBracket)) {
+                values.push_back(parse_expression());
+                assert(at(TK::RBracket) or consume(TK::Comma));
+            }
+            lhs = new (ctx_) ArrayExpr({start_span, tok().span_});
+            ingest(TK::RBracket);
+            break;
+        }
+        } // switch
 
-        lhs = std::make_unique<Expr>(std::move(mem));
+        while (infix_op_weight(peek().kind_) > prec) {
+            Tok op = peek();
+            i8 infix_prec = infix_op_weight(op.kind_);
+            advance();
+
+            Expr* rhs = parse_expression(infix_prec);
+            lhs = new (ctx_) BinaryOpExpr(op, lhs, rhs, {lhs->span_, rhs->span_});
+        }
         return lhs;
     }
 
-    // Moffs.
-    if (match(p, TK::At, TK::BitWidth)) {
-        ingest(p, TK::At, TK::BitWidth);
-
-        lhs =  std::make_unique<Expr>(
-            MoffsExpr {
-                .bw_ = X86Info::bit_width(peek(p, -1).str_),
-                .addr_ = parse_expr(p)
+    auto parse_x86_operand() -> X86Op* {
+        // Mem.
+        if (match(TK::At, TK::BitWidth, TK::LBracket)) {
+            auto mem = new (ctx_) MemOp;
+            auto start_span = tok().span_;
+            // Consume '@'.
+            advance();
+            mem->bw_ = X86Info::bit_width(tok().str_);
+            // Consume the bit width.
+            advance();
+            // Consume the '['.
+            advance();
+            if (at(TK::Reg)) {
+                mem->bri_ = X86Info::register_id(tok().str_);
+                // Consume the base register.
+                advance();
             }
-        );
-        return lhs;
-    }
+            ingest(TK::RBracket);
 
-    // Register.
-    if (match(p, TK::BitWidth, TK::Reg)) {
-        ingest(p, TK::BitWidth, TK::Reg);
-        
-        lhs = std::make_unique<Expr>(
-            RegisterExpr {
-                .bw_ = X86Info::bit_width(peek(p, -2).str_),
-                .ri_ = X86Info::register_id(peek(p, -1).str_)
+            // Scale and index register.
+            if (consume(TK::LBracket)) {
+                // Scale.
+                mem->scale_ = parse_expression();
+                ingest(TK::RBracket);
+                // Index register.
+                ingest(TK::LBracket, TK::Reg);
+                mem->iri_ = X86Info::register_id(peek(-1).str_);
+                ingest(TK::RBracket);
             }
-        );
-        return lhs;
-    }
 
-    // Immediate.
-    if (match(p, TK::BitWidth)) {
-        ingest(p, TK::BitWidth);
-
-        lhs = std::make_unique<Expr>(
-            ImmExpr {
-                .bw_ = X86Info::bit_width(peek(p, -1).str_),
-                .value_ = parse_expr(p)
+            // Displacement.
+            if (at(TK::Plus, TK::Minus)) {
+                mem->disp_ = parse_expression();
             }
-        );
-        return lhs;
-    }
 
-    switch (peek(p).kind_) {
-    case TK::Ident: {
-        ingest(p, TK::Ident);
-        
-        lhs = std::make_unique<Expr>(
-            LabelExpr {
-                .name_ = peek(p, -1).str_
-            }
-        );
-        break;
-    }
-
-    case TK::Num: {
-        ingest(p, TK::Num);
-
-        lhs = std::make_unique<Expr>(
-            IntExpr {
-                .value_ = parse_i64(p->ctx_, peek(p, -1))
-            }
-        );
-        break;
-    }
-
-    // String literal.
-    case TK::StrLit: {
-        ingest(p, TK::StrLit);
-
-        StrRef lit = peek(p, -1).str_;
-        lhs = std::make_unique<Expr>(
-            StrExpr {
-                // Trim the surrounding '"'s.
-                .lit_ = lit.substr(1, lit.size() - 1)
-            }
-        );
-        break;
-    }
-
-    case TK::Plus:
-    case TK::Minus: {
-        consume(p, TK::Plus, TK::Minus);
-
-        const Tok& op = peek(p, -1);
-        i8 pref_prec = prefix_prec_of_tok_kind(op.kind_);
-        lhs = std::make_unique<Expr>(
-            UnaryOpExpr {
-                .op_ = op,
-                .inner_ = parse_expr(p, pref_prec)
-            }
-        );
-        break;
-    }
-
-    case TK::LBracket: {
-        Vec<Box<Expr>> values;
-
-        ingest(p, TK::LBracket);
-        while (not at(p, TK::RBracket)) {
-            values.push_back(parse_expr(p));
-            if (not at(p, TK::RBracket)) { ingest(p, TK::Comma); }
+            // Fix the span.
+            mem->span_ = {start_span, peek(-1).span_};
+            return mem;
         }
-        ingest(p, TK::RBracket);
 
-        lhs = std::make_unique<Expr>(
-            ArrayExpr {
-                .values_ = std::move(values)
-            }
-        );
-        break;
-    }
-
-    default:
-        Diagnostic {p->ctx_, "Invalid expression.", peek(p).span_};
-    } // switch
-
-    while (infix_prec_of_tok_kind(peek(p).kind_) > prec) {
-        Tok op = peek(p);
-        consume(p, op.kind_);
-
-        lhs = std::make_unique<Expr>(
-            BinaryOpExpr {
-                .op_ = op,
-                .lhs_ = std::move(lhs),
-                .rhs_ = parse_expr(p, infix_prec_of_tok_kind(op.kind_))
-            }
-        );
-    }
-
-    return lhs;
-}
-
-auto parse_x86_instruction(Parser* p) -> Box<Expr> {
-    Box<Expr> x86instr_expr = nullptr;
-    X86InstrExpr x86i;
-    track_span(x86instr_expr);
-
-    // Check if the instruction starts with a valid mnemonic.
-    ingest(p, TK::Ident);
-    if (not X86Info::kMnemonics.contains(peek(p, -1).str_)) {
-        Diagnostic {
-            p->ctx_,
-            fmt::format("Unrecognized mnemonic '{}'.", peek(p, -1).str_),
-            peek(p, -1).span_
-        };
-    }
-    x86i.mnemonic_ = X86Info::mnemonic(peek(p, -1).str_);
-
-    // Parse the operands.
-    ingest(p, TK::LParen);
-    while (not at(p, TK::RParen)) {
-        x86i.ops_.push_back(parse_expr(p));
-
-        if (not at(p, TK::RParen)) { ingest(p, TK::Comma); }
-    }
-    ingest(p, TK::RParen, TK::SemiColon);
-
-    x86instr_expr = std::make_unique<Expr>(std::move(x86i));
-    return x86instr_expr;
-}
-
-// Parsing Expressions.
-auto parse_proc(Parser* p) -> Box<Expr> {
-    Box<Expr> proc_expr = nullptr;
-    ProcExpr proc;
-    track_span(proc_expr);
-
-    ingest(p, TK::Fn, TK::Ident);
-    proc.name_ = peek(p, -1).str_;
-
-    ingest(p, TK::LBrace);
-    while (not at(p, TK::RBrace)) {
-        proc.body_.push_back(parse_x86_instruction(p));
-    }
-    ingest(p, TK::RBrace);
-
-    proc_expr = std::make_unique<Expr>(std::move(proc));
-    return proc_expr;
-}
-
-// Global variable declarations.
-auto parse_var(Parser* p) -> Box<Expr> {
-    Box<Expr> var_expr = nullptr;
-    VarExpr var;
-    track_span(var_expr);
-
-    ingest(p, TK::Let, TK::Ident, TK::Colon, TK::At, TK::BitWidth, TK::Eq);
-    var_expr = std::make_unique<Expr>(
-        VarExpr {
-            .type_ = X86Info::bit_width(peek(p, -2).str_),
-            .name_ = peek(p, -5).str_,
-            .value_ = parse_expr(p)
+        // Mem offset.
+        if (match(TK::At, TK::BitWidth)) {
+            auto moffs = new (ctx_) MoffsOp;
+            auto start_span = tok().span_;
+            // Consume '@'.
+            advance();
+            moffs->bw_ = X86Info::bit_width(tok().str_);
+            // Consume the bitwidth.
+            advance();
+            moffs->addr_ = parse_expression();
+            // Fix the span.
+            moffs->span_ = {start_span, peek(-1).span_};
+            return moffs;
         }
-    );
-    ingest(p, TK::SemiColon);
+    }
 
-    return var_expr;
-}
+    auto parse_proc() -> Proc* {
+        todo();
+    }
 
-} // namespace
+    auto parse_var() -> Var* {
+        todo();
+    }
+
+    auto parse_section() -> Section {
+        todo();
+    }
+
+    auto parse_x86_instruction() -> X86Inst {
+        todo();
+    }
+};
+
+} // namespace 
 } // namespace fiska::assembler::frontend
 
-auto fiska::assembler::frontend::parse(Ctx* ctx, u16 fid) -> Vec<Box<Expr>> {
-    Parser p(ctx, fid);
-    Vec<Box<Expr>> ast;
-
-    // need a parse section function here.
-    while (not at(&p, TK::Eof)) {
-        ingest(&p, TK::Section, TK::Ident, TK::LBrace);
-        p.section_ = peek(&p, -2).str_;
-
-        while (not at(&p, TK::RBrace)) {
-            switch (peek(&p).kind_) {
-            case TK::Fn:
-                ast.push_back(parse_proc(&p));
-                break;
-            case TK::Let:
-                ast.push_back(parse_var(&p));
-                break;
-            default:
-                Diagnostic {
-                    ctx,
-                    fmt::format("Expected a function or a variable, found '{}'.", peek(&p).kind_),
-                    peek(&p).span_
-                };
-            } // switch
-        }
-        ingest(&p, TK::RBrace);
-    }
-    return ast;
-}
-
-#undef track_span

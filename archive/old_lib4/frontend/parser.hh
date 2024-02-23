@@ -6,7 +6,6 @@
 
 namespace fiska::assembler::frontend {
 
-struct Ctx;
 auto parse(Ctx*, u16 fid) -> Vec<Box<Expr>>;
 
 } // namespace fiska::assembler::frontend

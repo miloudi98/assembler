@@ -1,5 +1,4 @@
 #include "lib/frontend/lexer.hh"
-#include "lib/frontend/ctx.hh"
 #include "lib/common/base.hh"
 #include "lib/common/support.hh"
 
@@ -100,7 +99,7 @@ struct Lexer {
         } while (std::isalnum(static_cast<u8>(c_)));
 
         tok().kind_ = TK::Num;
-        tok().str_ = ctx_->string_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
+        tok().str_ = ctx_->str_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
     }
 
     auto lex_ident() -> void {
@@ -108,7 +107,7 @@ struct Lexer {
             next();
         } while (continues_ident(c_));
 
-        tok().str_ = ctx_->string_pool_.save(StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_});
+        tok().str_ = ctx_->str_pool_.save(StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_});
         tok().kind_ = kKeywords.contains(tok().str_) ? utils::strmap_get(kKeywords, tok().str_) : TK::Ident;
     }
 
@@ -119,7 +118,7 @@ struct Lexer {
         while (not eof() and c_ != '"') { next(); }
 
         tok().kind_ = TK::StrLit;
-        tok().str_ = ctx_->string_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
+        tok().str_ = ctx_->str_pool_.save( StrRef{file_data() + tok().span_.pos_, cur_offset() - tok().span_.pos_} );
 
         // Eat the closing '"' or emit an error.
         assert(c_ == '"');
@@ -249,7 +248,7 @@ struct Lexer {
 
         // Set the length of the token.
         tok().span_.len_ = (not eof()) * u16(cur_offset() - tok().span_.pos_ - 1);
-        tok().span_.len_ += tok().has_single_char_spelling();
+        tok().span_.len_ += tok().is_one_char_token();
     }
 };
 
