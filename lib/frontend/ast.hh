@@ -62,7 +62,6 @@ struct X86Op : Expr {
     }
 };
 
-
 struct Symbol : Expr {
     Symbol(Kind k, Span s) : Expr(k, s) {}
 

@@ -2,7 +2,7 @@ section .text {
 
 fn _start {
     mov(b64 rax, @b64 [rax][2][rbx] + disp + 0x11233);
-    mov(b64 rax, @b64 disp + 0x1234);
+    mov(b64 rax, @b64 disp + 0x1122334455667788 + other_disp);
 }
 
 } // .text
