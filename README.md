@@ -1,5 +1,5 @@
 ## x86 assembler
-This is an implementation of an x86 assembler based on [intel's reference manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.htmlintel's manual reference). 
+This is an implementation of an x86 assembler based on [intel's reference manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.htmlintel's). 
 Please note that this is a work in progress and a lot of the design might change.
 
 The project is currently undergoing a rewrite, old versions of the code can be found in the `archive` folder. 
